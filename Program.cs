@@ -55,6 +55,7 @@ var discoveryTasks = new[]
 var devices = new ConcurrentDictionary<string, Device>();
 var ips = NetworkInfo.EnumerateHosts(network, broadcast).ToArray();
 var keyPorts = new[] { 22, 80, 443, 445, 3389, 9100, 23, 21 };
+ProgressBar.Start(ips.Length);
 
 using var sem = new SemaphoreSlim(256);
 var perHostTasks = ips.Select(async ip =>
@@ -90,12 +91,18 @@ var perHostTasks = ips.Select(async ip =>
         if (dev.HasAnyData)
             devices[dev.Ip] = dev;
     }
-    finally { sem.Release(); }
+    finally
+    {
+        sem.Release();
+        ProgressBar.Tick();
+    }
 }).ToArray();
 
 await Task.WhenAll(perHostTasks);
 await Task.WhenAll(discoveryTasks);
 cts.Cancel();
+
+ProgressBar.Finish();
 
 // 4) Вывод
 Console.WriteLine("\n=== SSDP найдено ===");
