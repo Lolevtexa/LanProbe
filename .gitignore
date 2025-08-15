@@ -1,0 +1,26 @@
+# .gitignore для .NET/C#
+@'
+# Build artifacts
+bin/
+obj/
+# Пользовательские и IDE файлы
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+# Rider / JetBrains
+.idea/
+*.iml
+# VS Code: исключаем только локальные настройки
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+# ОС
+[Dd]esktop.ini
+[Tt]humbs.db
+.DS_Store
+# Пакеты (обычно не коммитят)
+packages/
+# Логи
+*.log
