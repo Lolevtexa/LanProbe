@@ -7,9 +7,12 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using System.Diagnostics;
+
 
 // .NET 8/9
 Console.OutputEncoding = Encoding.UTF8;
+var swTotal = Stopwatch.StartNew();
 
 // 1) Определяем основную подсеть (IPv4)
 IPAddress? overrideNet = null, overrideMask = null;
@@ -103,28 +106,41 @@ await Task.WhenAll(discoveryTasks);
 cts.Cancel();
 
 ProgressBar.Finish();
+swTotal.Stop();
 
 // 4) Вывод
-Console.WriteLine("\n=== SSDP найдено ===");
-foreach (var (key, headers) in ssdpFound.OrderBy(k => k.Key))
-{
-    Console.WriteLine($"[{key}]");
-    foreach (var h in headers) Console.WriteLine($"  {h.Key}: {h.Value}");
-}
-
-Console.WriteLine("\n=== mDNS найдено (типы сервисов) ===");
-foreach (var kv in mdnsFound.OrderBy(k => k.Key))
-    Console.WriteLine($"{kv.Key} => {kv.Value}");
-
-Console.WriteLine("\n=== Хосты ===");
-foreach (var d in devices.Values.OrderBy(d =>
+var deviceList = devices.Values.OrderBy(d =>
 {
     var bytes = IPAddress.Parse(d.Ip).GetAddressBytes();
     return BitConverter.ToInt32(bytes.Reverse().ToArray(), 0);
-}))
-{
-    Console.WriteLine(new string('-', 60));
-    Console.WriteLine(d);
-}
+}).ToList();
 
-Console.WriteLine("\nГотово.");
+// Имя базы для файлов
+string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+string baseName = $"LanProbe_{NetworkInfo.MaskToCidr(mask)}_{network}_{stamp}"
+                    .Replace(":", "-"); // на всякий случай
+
+// Файлы с отчётами
+string jsonPath = ReportWriter.WriteJson(deviceList, baseName);
+string csvPath  = ReportWriter.WriteCsv(deviceList, baseName);
+// по желанию: отдельные файлы по SSDP/mDNS (коммент можно убрать)
+string ssdpPath = ReportWriter.WriteText(ssdpFound, baseName);
+string mdnsPath = ReportWriter.WriteText(mdnsFound, baseName, "mdns");
+
+// ===== КОНСОЛЬ: ТОЛЬКО ОБЩАЯ ИНФОРМАЦИЯ =====
+Console.WriteLine();
+Console.WriteLine("====== Сводка сканирования ======");
+Console.WriteLine($"Подсеть:        {network}/{NetworkInfo.MaskToCidr(mask)}");
+Console.WriteLine($"Адресов всего:  {ips.Length}");
+Console.WriteLine($"Устройств:      {deviceList.Count}");
+Console.WriteLine($"SSDP записей:   {ssdpFound.Count}");
+Console.WriteLine($"mDNS записей:   {mdnsFound.Count}");
+Console.WriteLine($"Время:          {swTotal.Elapsed:mm\\:ss}");
+Console.WriteLine();
+Console.WriteLine("Файлы отчёта:");
+Console.WriteLine($"  JSON: {jsonPath}");
+Console.WriteLine($"  CSV : {csvPath}");
+Console.WriteLine($"  SSDP: {ssdpPath}");
+Console.WriteLine($"  mDNS: {mdnsPath}");
+Console.WriteLine();
+Console.WriteLine("Готово.");

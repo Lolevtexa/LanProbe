@@ -24,3 +24,4 @@ obj/
 packages/
 # Логи
 *.log
+LanProbe_*
