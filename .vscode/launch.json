@@ -7,6 +7,9 @@
       "request": "launch",
       "preLaunchTask": "build",
       "program": "${workspaceFolder}/bin/Debug/net9.0/LanProbe.dll",
+      "args": [
+        "192.168.0.0/24"
+      ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "stopAtEntry": false

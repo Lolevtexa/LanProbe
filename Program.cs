@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 
 
 // .NET 8/9
@@ -19,7 +20,7 @@ IPAddress? overrideNet = null, overrideMask = null;
 if (args.Length == 1 && args[0].Contains('/'))
 {
     var parts = args[0].Split('/');
-    if (IPAddress.TryParse(parts[0], out var netIp) && int.TryParse(parts[1], out var cidr) && cidr is >=0 and <=32)
+    if (IPAddress.TryParse(parts[0], out var netIp) && int.TryParse(parts[1], out var cidr) && cidr is >= 0 and <= 32)
     {
         // Построим маску из CIDR
         uint m = cidr == 0 ? 0u : 0xFFFFFFFFu << (32 - cidr);
@@ -39,6 +40,8 @@ if (localIp is null || mask is null)
     return;
 }
 var (network, broadcast) = NetworkInfo.GetSubnet(localIp, mask);
+var (ifaceIp, gatewayIp) = NetworkInfo.GetIfaceAndGatewayFor(network, mask);
+string? routerMac = gatewayIp != null ? Arp.TryGetMac(gatewayIp) : null;
 Console.WriteLine($"Скан: {network}/{NetworkInfo.MaskToCidr(mask)} (локальный {localIp})");
 
 // 2) Параллельно запускаем локальные обнаружения: SSDP, NBNS, mDNS
@@ -73,7 +76,14 @@ var perHostTasks = ips.Select(async ip =>
         foreach (var p in openPorts) dev.OpenPorts.Add(p);
 
         // ARP для MAC
-        dev.Mac = Arp.TryGetMac(ip);
+        bool pingOk = false;
+        try
+        {
+            using var p = new Ping();
+            var r = await p.SendPingAsync(ip, 500);
+            pingOk = (r.Status == IPStatus.Success);
+        }
+        catch { /* ignore */ }
 
         // сервисные пробы
         var probes = new List<Task>();
@@ -91,7 +101,13 @@ var perHostTasks = ips.Select(async ip =>
         // простые эвристики
         Device.Infer(dev);
 
-        if (dev.HasAnyData)
+        bool hasMeanAttr = dev.Attr.Any(); // после SSH-фикса сюда не попадут пустяки
+        bool hasMacNotRouter = !string.IsNullOrWhiteSpace(dev.Mac) && (routerMac == null || dev.Mac != routerMac);
+        bool isGateway = (gatewayIp != null && ip.Equals(gatewayIp));
+
+        bool isRealish = pingOk || hasMacNotRouter || hasMeanAttr || isGateway;
+
+        if (isRealish)
             devices[dev.Ip] = dev;
     }
     finally
@@ -117,12 +133,12 @@ var deviceList = devices.Values.OrderBy(d =>
 
 // Имя базы для файлов
 string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-string baseName = $"LanProbe_{NetworkInfo.MaskToCidr(mask)}_{network}_{stamp}"
+string baseName = $"tmp/LanProbe_{NetworkInfo.MaskToCidr(mask)}_{network}_{stamp}"
                     .Replace(":", "-"); // на всякий случай
 
 // Файлы с отчётами
 string jsonPath = ReportWriter.WriteJson(deviceList, baseName);
-string csvPath  = ReportWriter.WriteCsv(deviceList, baseName);
+string csvPath = ReportWriter.WriteCsv(deviceList, baseName);
 // по желанию: отдельные файлы по SSDP/mDNS (коммент можно убрать)
 string ssdpPath = ReportWriter.WriteText(ssdpFound, baseName);
 string mdnsPath = ReportWriter.WriteText(mdnsFound, baseName, "mdns");

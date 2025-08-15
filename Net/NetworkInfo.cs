@@ -53,4 +53,27 @@ public static class NetworkInfo
             yield return new IPAddress(bytes);
         }
     }
+
+    public static (IPAddress? ifaceIp, IPAddress? gateway) GetIfaceAndGatewayFor(IPAddress network, IPAddress mask)
+    {
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces()
+                 .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                             n.NetworkInterfaceType != NetworkInterfaceType.Loopback))
+        {
+            var ipProps = ni.GetIPProperties();
+            var ua = ipProps.UnicastAddresses
+                .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            if (ua is null || ua.IPv4Mask is null) continue;
+
+            // принадлежит ли интерфейс этой подсети
+            var (net2, _) = GetSubnet(ua.Address, mask);
+            if (net2.Equals(network))
+            {
+                var gw = ipProps.GatewayAddresses
+                    .FirstOrDefault(g => g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)?.Address;
+                return (ua.Address, gw);
+            }
+        }
+        return (null, null);
+    }
 }
