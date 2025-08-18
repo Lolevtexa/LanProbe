@@ -55,6 +55,12 @@ var opts = new ScanOptions
     PingTimeout = TimeSpan.FromMilliseconds(400),
 };
 
+if (ip == null || mask == null)
+{
+    Console.WriteLine("Не удалось определить IP-адрес и маску подсети. Проверьте параметры запуска или сетевое подключение.");
+    return;
+}
+
 var devices = await LanScanner.ScanSubnetAsync(ip, mask, opts);
 
 Console.WriteLine($"Найдено устройств: {devices.Count}");
