@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Консольное приложение для демонстрации возможностей библиотеки -->
+    <OutputType>Exe</OutputType>
+    <!-- Целевая платформа примера. Совместима с установленным SDK .NET 9 -->
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Ссылка на основную библиотеку -->
+    <ProjectReference Include="../LanProbe/LanProbe.csproj" />
+  </ItemGroup>
+</Project>

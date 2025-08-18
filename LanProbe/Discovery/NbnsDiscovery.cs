@@ -5,9 +5,23 @@ using System.Text;
 
 namespace LanProbe.Discovery;
 
+/// <summary>
+/// Реализует обнаружение NetBIOS имён по протоколу NBNS (NetBIOS Name Service).
+/// Отправляет широковещательный запрос NODE STATUS и анализирует ответы,
+/// извлекая первое имя из ответа. Полученные имена сохраняются в
+/// concurrent‑словарь sink, где ключом является IP‑адрес, а значением
+/// найденное имя.
+/// </summary>
 public static class NbnsDiscovery
 {
-    public static async Task BroadcastNodeStatus(ConcurrentDictionary<string,string> sink,
+    /// <summary>
+    /// Рассылает широковещательный NBNS запрос и собирает ответы в течение
+    /// указанного времени.
+    /// </summary>
+    /// <param name="sink">Concurrent‑словарь, в который помещаются результаты.</param>
+    /// <param name="duration">Продолжительность ожидания ответов.</param>
+    /// <param name="ct">Токен отмены.</param>
+    public static async Task BroadcastNodeStatus(ConcurrentDictionary<string, string> sink,
                                                  TimeSpan duration, CancellationToken ct)
     {
         using var udp = new UdpClient();
@@ -34,16 +48,19 @@ public static class NbnsDiscovery
                 var name = TryParseFirstName(result.Buffer) ?? "NBNS-Name";
                 sink[result.RemoteEndPoint.Address.ToString()] = name;
             }
-            catch { /* timeout */ }
+            catch
+            {
+                // timeout или отмена
+            }
         }
     }
 
-    static byte[] BuildNodeStatusPacket()
+    private static byte[] BuildNodeStatusPacket()
     {
         // Простейший NBNS запрос NODE STATUS для имени "*"
         // Транзакционный ID произвольный (0x1234)
         var ms = new MemoryStream();
-        void W16(ushort v){ ms.WriteByte((byte)(v >> 8)); ms.WriteByte((byte)(v & 0xFF)); }
+        void W16(ushort v) { ms.WriteByte((byte)(v >> 8)); ms.WriteByte((byte)(v & 0xFF)); }
 
         W16(0x1234); // ID
         W16(0x0000); // Flags: Query
@@ -53,7 +70,7 @@ public static class NbnsDiscovery
         W16(0x0000); // ARCOUNT
 
         // NBNS name encoding для "*" (звёздочка)
-        // Спец-имя: 0x2A -> кодируем как label длиной 0x20 (RFC 1002 «compressed NB name»), но проще: «*               » (15 пробелов) и 0x00 тип
+        // Спец‑имя: 0x2A -> кодируем как label длиной 0x20 (RFC 1002 «compressed NB name»), но проще: «*               » (15 пробелов) и 0x00 тип
         // Чтобы не увязнуть, используем готовое "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" (код NBNS для "*"):
         var starName = Encoding.ASCII.GetBytes("CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
         ms.WriteByte(32); // длина лейбла
@@ -66,10 +83,10 @@ public static class NbnsDiscovery
         return ms.ToArray();
     }
 
-    static string? TryParseFirstName(byte[] buf)
+    private static string? TryParseFirstName(byte[] buf)
     {
         // Очень упрощённо: в ответе NBSTAT после заголовков есть список имён.
-        // Найдём ASCII-последовательности и вернём первую «вменяемую».
+        // Найдём ASCII‑последовательности и вернём первую «вменяемую».
         try
         {
             var ascii = Encoding.ASCII.GetString(buf);
@@ -82,7 +99,10 @@ public static class NbnsDiscovery
                     return t;
             }
         }
-        catch { }
+        catch
+        {
+            // игнорируем ошибки разбора
+        }
         return null;
     }
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Файл проекта для библиотеки LanProbe.
+  Библиотека содержит API для работы с локальными сетями и
+  предназначена для использования в других приложениях.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Целевая платформа. Используется .NET 8 для широкой совместимости. -->
+    <!-- Целевая платформа. Совместима с установленным SDK .NET 9 -->
+    <TargetFramework>net9.0</TargetFramework>
+    <!-- Включаем неявные директивы using и проверку на null. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

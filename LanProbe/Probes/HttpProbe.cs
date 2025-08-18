@@ -9,8 +9,23 @@ using System.Text.RegularExpressions;
 
 namespace LanProbe.Probes;
 
+/// <summary>
+/// Проба HTTP/HTTPS: отправляет запрос HEAD на указанный порт и
+/// извлекает информацию из ответа (заголовок Server, HTML‑title, TLS CN и
+/// поле Organization из сертификата). Результаты помещаются в
+/// словарь атрибутов устройства с ключами, зависящими от типа запроса
+/// и номера порта.
+/// </summary>
 public static class HttpProbe
 {
+    /// <summary>
+    /// Выполняет HTTP‑или HTTPS‑пробу на заданный порт. При HTTPS
+    /// соединение устанавливается через <see cref="SslStream"/>.
+    /// </summary>
+    /// <param name="ip">IP‑адрес удалённого хоста.</param>
+    /// <param name="port">Порт для подключения (обычно 80 или 443).</param>
+    /// <param name="useTls">Если true, используется TLS (HTTPS).</param>
+    /// <param name="dev">Устройство, куда будут записаны найденные атрибуты.</param>
     public static async Task Run(IPAddress ip, int port, bool useTls, Device dev)
     {
         try
@@ -46,10 +61,14 @@ public static class HttpProbe
                 Extract(resp, port, dev, false);
             }
         }
-        catch { }
+        catch
+        {
+            // игнорируем ошибки
+        }
     }
 
-    static async Task SendHeadAndExtract(SslStream ssl, IPAddress ip, int port, Device dev, bool https)
+    // Внутренний метод для отправки запроса HEAD по TLS‑соединению и извлечения данных.
+    private static async Task SendHeadAndExtract(SslStream ssl, IPAddress ip, int port, Device dev, bool https)
     {
         var req = $"HEAD / HTTP/1.1\r\nHost: {ip}\r\nConnection: close\r\n\r\n";
         var data = Encoding.ASCII.GetBytes(req);
@@ -59,7 +78,8 @@ public static class HttpProbe
         Extract(resp, port, dev, https);
     }
 
-    static void Extract(string raw, int port, Device dev, bool https)
+    // Разбор сырого HTTP‑ответа и заполнение атрибутов.
+    private static void Extract(string raw, int port, Device dev, bool https)
     {
         var mServer = Regex.Match(raw, @"(?im)^Server:\s*(.+)$");
         if (mServer.Success) dev.Attr[$"{(https ? "HTTPS" : "HTTP")}_Server_{port}"] = mServer.Groups[1].Value.Trim();

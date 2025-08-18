@@ -1,13 +1,25 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
 namespace LanProbe.Discovery;
 
+/// <summary>
+/// Обнаружение служб по протоколу mDNS (Multicast DNS). Отправляет запрос
+/// <c>_services._dns-sd._udp.local</c> и принимает ответы от устройств,
+/// собирая найденные типы служб (например, <c>_http._tcp.local</c>).
+/// </summary>
 public static class MdnsDiscovery
 {
-    public static async Task QueryServices(ConcurrentDictionary<string,string> sink,
+    /// <summary>
+    /// Отправляет запрос к mDNS и собирает ответы в течение заданного времени.
+    /// </summary>
+    /// <param name="sink">Словарь, куда добавляются найденные службы. Ключ — тип службы, значение — адрес отправителя.</param>
+    /// <param name="duration">Время ожидания ответов.</param>
+    /// <param name="ct">Токен отмены.</param>
+    public static async Task QueryServices(ConcurrentDictionary<string, string> sink,
                                            TimeSpan duration, CancellationToken ct)
     {
         using var udp = new UdpClient();
@@ -25,18 +37,21 @@ public static class MdnsDiscovery
             {
                 var result = await udp.ReceiveAsync().WaitAsync(TimeSpan.FromMilliseconds(600), ct);
                 var txt = Encoding.UTF8.GetString(result.Buffer);
-                // Достанем встречающиеся «_xxx._udp.local» / «_xxx._tcp.local»
+                // Достаём встречающиеся «_xxx._udp.local» / «_xxx._tcp.local»
                 foreach (var s in ExtractServiceTypes(txt))
                     sink.TryAdd(s, result.RemoteEndPoint.ToString());
             }
-            catch { /* timeout */ }
+            catch
+            {
+                // timeout
+            }
         }
     }
 
-    static byte[] BuildDnsQuery(string name)
+    private static byte[] BuildDnsQuery(string name)
     {
         var ms = new MemoryStream();
-        void W16(ushort v){ ms.WriteByte((byte)(v >> 8)); ms.WriteByte((byte)(v & 0xFF)); }
+        void W16(ushort v) { ms.WriteByte((byte)(v >> 8)); ms.WriteByte((byte)(v & 0xFF)); }
 
         W16(0x0000); // ID=0 (mDNS)
         W16(0x0000); // Flags=0 (query)
@@ -59,7 +74,7 @@ public static class MdnsDiscovery
         return ms.ToArray();
     }
 
-    static IEnumerable<string> ExtractServiceTypes(string raw)
+    private static IEnumerable<string> ExtractServiceTypes(string raw)
     {
         // Находим подстроки вида _xxx._udp.local / _xxx._tcp.local
         var tokens = raw.Split('\0', '\r', '\n', ' ', '"', '\'');

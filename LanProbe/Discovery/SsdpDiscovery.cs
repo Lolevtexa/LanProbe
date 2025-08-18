@@ -1,14 +1,26 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
 namespace LanProbe.Discovery;
 
+/// <summary>
+/// Обнаружение устройств UPnP/SSDP путём отправки M‑SEARCH запроса и
+/// чтения ответов. Собирает заголовки из ответов и помещает их в
+/// concurrent‑словарь.
+/// </summary>
 public static class SsdpDiscovery
 {
+    /// <summary>
+    /// Выполняет SSDP‑обнаружение в течение указанного времени.
+    /// </summary>
+    /// <param name="sink">Словарь, в который будут помещены ответы. Ключ — значение поля USN или LOCATION, значение — словарь всех заголовков.</param>
+    /// <param name="duration">Продолжительность опроса.</param>
+    /// <param name="ct">Токен отмены.</param>
     public static async Task QueryAll(ConcurrentDictionary<string, Dictionary<string, string>> sink,
-                                      TimeSpan duration, CancellationToken ct)
+                                       TimeSpan duration, CancellationToken ct)
     {
         string req = string.Join("\r\n", new[]
         {
@@ -47,11 +59,14 @@ public static class SsdpDiscovery
                           result.RemoteEndPoint.ToString();
                 sink[key] = headers;
             }
-            catch { /* timeout */ }
+            catch
+            {
+                // timeout
+            }
         }
     }
 
-    static Dictionary<string,string> ParseHttpHeaders(string raw)
+    private static Dictionary<string, string> ParseHttpHeaders(string raw)
     {
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in raw.Split("\r\n"))

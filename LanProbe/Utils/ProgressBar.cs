@@ -4,6 +4,13 @@ using System.Threading;
 
 namespace LanProbe.Utils;
 
+/// <summary>
+/// Реализует простую текстовую прогресс‑бар для консольных приложений.
+/// Показывает количество обработанных элементов, процент выполнения и
+/// приблизительное время до завершения. Не предназначен для
+/// многократного параллельного использования: отображает один
+/// прогресс‑бар в процессе.
+/// </summary>
 public static class ProgressBar
 {
     private static readonly object _lock = new();
@@ -14,6 +21,10 @@ public static class ProgressBar
     private static Task? _pumpTask;
     private static bool _finished;
 
+    /// <summary>
+    /// Запускает прогресс‑бар для указанного количества элементов.
+    /// </summary>
+    /// <param name="total">Общее количество элементов, которое будет обработано.</param>
     public static void Start(int total)
     {
         lock (_lock)
@@ -40,13 +51,20 @@ public static class ProgressBar
                         await Task.Delay(1000, _cts.Token);
                     }
                 }
-                catch (OperationCanceledException) { /* normal */ }
+                catch (OperationCanceledException)
+                {
+                    // normal termination
+                }
             });
 
             Render(force: true);
         }
     }
 
+    /// <summary>
+    /// Увеличивает счётчик выполненных элементов и обновляет отображение.
+    /// </summary>
+    /// <param name="step">Количество элементов, завершённых с момента последнего вызова.</param>
     public static void Tick(int step = 1)
     {
         // Лёгкий инкремент без гонок
@@ -55,6 +73,9 @@ public static class ProgressBar
         Render(force: true);
     }
 
+    /// <summary>
+    /// Завершает прогресс‑бар и выводит итоговое время.
+    /// </summary>
     public static void Finish()
     {
         lock (_lock)
@@ -77,6 +98,7 @@ public static class ProgressBar
         }
     }
 
+    // Рисует прогресс‑бар. Может быть вызвано часто.
     private static void Render(bool force = false)
     {
         lock (_lock)

@@ -1,11 +1,24 @@
 using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 
 namespace LanProbe.Net;
 
+/// <summary>
+/// Предоставляет методы для получения информации о сетевых интерфейсах и
+/// вычисления параметров подсети.
+/// </summary>
 public static class NetworkInfo
 {
+    /// <summary>
+    /// Возвращает IP‑адрес и маску первичного (активного) сетевого интерфейса.
+    /// </summary>
+    /// <returns>
+    /// Кортеж, содержащий IP‑адрес и маску. Если активный IPv4
+    /// интерфейс не найден, оба значения равны <c>null</c>.
+    /// </returns>
     public static (IPAddress? ip, IPAddress? mask) GetPrimaryIPv4()
     {
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces()
@@ -20,6 +33,14 @@ public static class NetworkInfo
         return (null, null);
     }
 
+    /// <summary>
+    /// Вычисляет адрес сети и широковещательный адрес по IP и маске.
+    /// </summary>
+    /// <param name="ip">IP‑адрес узла.</param>
+    /// <param name="mask">Маска подсети.</param>
+    /// <returns>
+    /// Кортеж с адресом сети и широковещательным адресом.
+    /// </returns>
     public static (IPAddress network, IPAddress broadcast) GetSubnet(IPAddress ip, IPAddress mask)
     {
         var ipBytes = ip.GetAddressBytes();
@@ -34,6 +55,11 @@ public static class NetworkInfo
         return (new IPAddress(net), new IPAddress(bcast));
     }
 
+    /// <summary>
+    /// Преобразует маску подсети в CIDR‑префикс (количество единичных битов).
+    /// </summary>
+    /// <param name="mask">Маска подсети.</param>
+    /// <returns>Длина префикса в битах (от 0 до 32).</returns>
     public static int MaskToCidr(IPAddress mask)
     {
         var b = mask.GetAddressBytes();
@@ -42,6 +68,14 @@ public static class NetworkInfo
         return cidr;
     }
 
+    /// <summary>
+    /// Перечисляет все допустимые хосты в подсети (исключая адрес сети и broadcast).
+    /// </summary>
+    /// <param name="network">Адрес сети.</param>
+    /// <param name="broadcast">Широковещательный адрес.</param>
+    /// <returns>
+    /// Последовательность IP‑адресов всех хостов в подсети.
+    /// </returns>
     public static IEnumerable<IPAddress> EnumerateHosts(IPAddress network, IPAddress broadcast)
     {
         uint net = BinaryPrimitives.ReadUInt32BigEndian(network.GetAddressBytes());
@@ -54,6 +88,15 @@ public static class NetworkInfo
         }
     }
 
+    /// <summary>
+    /// Находит IP‑адрес интерфейса и шлюз, принадлежащие указанной сети.
+    /// </summary>
+    /// <param name="network">Адрес сети.</param>
+    /// <param name="mask">Маска подсети.</param>
+    /// <returns>
+    /// Кортеж с IP‑адресом интерфейса и адресом шлюза. Если подходящий
+    /// интерфейс не найден, оба значения равны <c>null</c>.
+    /// </returns>
     public static (IPAddress? ifaceIp, IPAddress? gateway) GetIfaceAndGatewayFor(IPAddress network, IPAddress mask)
     {
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces()
@@ -65,7 +108,7 @@ public static class NetworkInfo
                 .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
             if (ua is null || ua.IPv4Mask is null) continue;
 
-            // принадлежит ли интерфейс этой подсети
+            // Проверяем, принадлежит ли интерфейс указанной подсети
             var (net2, _) = GetSubnet(ua.Address, mask);
             if (net2.Equals(network))
             {
