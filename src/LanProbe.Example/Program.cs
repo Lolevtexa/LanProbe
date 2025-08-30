@@ -3,6 +3,7 @@ using LanProbe.Core.Enrichment;
 using LanProbe.Core.Export;
 using LanProbe.Core.Models;
 using LanProbe.Core.Scanning;
+using LanProbe.Core.Analysis;   // Шаг 3: анализ
 using System.Net;
 using System.Text;
 
@@ -36,10 +37,9 @@ class Program
         Console.WriteLine($"[ARP0] entries={arp0.Count}");
 
         // ====== Подготовка IP-адресов ======
-        // var ips = CidrList(cidr).Where(ip => ip != localIf).ToList();
         var ips = CidrList(cidr).ToList();
 
-        // ====== Пинги (асинхронная волна) ======
+        // ====== Пинги ======
         var results = new Dictionary<string, (bool ok, long bestRttMs, int ttl, int successCount)>();
         var throttler = new SemaphoreSlim(64);
         var tasks = new List<Task>();
@@ -69,9 +69,8 @@ class Program
         var arp1 = ArpReader.Snapshot(localIf);
         Console.WriteLine($"[ARP1] entries={arp1.Count}");
 
-        // ====== Построение DeviceFact только для реально живых ======
+        // ====== Построение DeviceFact ======
         var vendorDb = new MacVendorLookup("data/vendors.csv");
-
         var facts = new List<DeviceFact>();
         foreach (var ip in ips)
         {
@@ -98,7 +97,6 @@ class Program
             ));
         }
 
-        // Базовый экспорт Шага 1 (как было)
         CsvExporter.Save("data/exports/devices.csv", facts);
         JsonExporter.Save("data/exports/devices.json", facts);
         Console.WriteLine($"[STEP1] alive={facts.Count}");
@@ -133,7 +131,6 @@ class Program
         var step2Tasks = facts.Select(async d =>
         {
             var ip = IPAddress.Parse(d.Ip);
-
             var probes = await portScanner.ScanAsync(ip, bindOnInterface, ServiceName, ct);
             var banners = await bannerGrabber.GrabAsync(ip, probes, bindOnInterface, ct);
 
@@ -160,6 +157,22 @@ class Program
 
         File.WriteAllText("data/logs/step2_ports.csv", logStep2.ToString());
         Console.WriteLine($"[STEP2] enriched={enriched.Length} (ports+banners)");
+
+        // ====== ШАГ 3: Автоанализ ======
+        {
+            Directory.CreateDirectory("out");
+            var vendorsDir = "data/vendors";
+            IOuiVendorLookup? oui = Directory.Exists(vendorsDir) ? new OuiVendorLookup(vendorsDir) : null;
+
+            var analysisResults = DeviceAnalyzer.AnalyzeAll(enriched, oui, new AnalysisOptions { HighRttMs = 30 });
+
+            AnalysisExport.SaveJson("out/analysis.json", analysisResults);
+            AnalysisExport.SaveCsv("out/analysis.csv", analysisResults);
+            AnalysisExport.SaveMarkdown("out/analysis.md", analysisResults);
+
+            Console.WriteLine($"[STEP3] analyzed={analysisResults.Count}");
+        }
+
         Console.WriteLine("[DONE]");
     }
 
