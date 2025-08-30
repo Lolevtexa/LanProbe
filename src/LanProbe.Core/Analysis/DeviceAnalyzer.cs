@@ -438,16 +438,16 @@ namespace LanProbe.Core.Analysis
             // ===== ДЕБАГ ВЫВОД =====
             try
             {
-                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip,
-                    $"[STEP3][DEBUG] ip={f.Ip} ttl={f.Ttl} vendor='{vendor}' " +
+                Util.DebugFileLog.WriteLine(f.Ip,
+                    $"[DEBUG] ip={f.Ip} ttl={f.Ttl} vendor='{vendor}' " +
                     $"rand={randomized} phoneBrand={phoneBrand} hasWeb={hasWeb} " +
                     $"routerCn={routerCn} routerIssuer={routerIssuer} gwIp={gwIp} " +
                     $"detectedBrand='{detectedRouterBrand}' open=[{string.Join(",", open.OrderBy(x => x))}]");
 
                 var scoresStr = string.Join(", ", table.Select(t => $"{t.kind}={Math.Max(0, t.s):0.00}"));
-                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip, $"[STEP3][DEBUG] scores: {scoresStr}");
-                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip, $"[STEP3][DEBUG] reasons: {string.Join("; ", reasons)}");
-                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip, $"[STEP3][DEBUG] => best={best.kind} conf={conf:0.00} " +
+                Util.DebugFileLog.WriteLine(f.Ip, $"[DEBUG] scores: {scoresStr}");
+                Util.DebugFileLog.WriteLine(f.Ip, $"[DEBUG] reasons: {string.Join("; ", reasons)}");
+                Util.DebugFileLog.WriteLine(f.Ip, $"[DEBUG] => best={best.kind} conf={conf:0.00} " +
                     $"alt=[{string.Join(", ", alternatives.Select(a => $"{a.kind}:{Math.Max(0, a.s):0.00}"))}]");
             }
             catch { }

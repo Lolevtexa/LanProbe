@@ -79,11 +79,19 @@ namespace LanProbe.Core.Util
 
         private static string PathFor(string ip, string category)
         {
+            // _common всегда лежит в корне папки запуска (с меткой времени)
+            if (string.IsNullOrWhiteSpace(ip) || string.Equals(ip, "_common", StringComparison.OrdinalIgnoreCase))
+            {
+                var root = Path.Combine(_rootDir, _ts);
+                Directory.CreateDirectory(root);
+                return Path.Combine(root, "_common.log");
+            }
+
+            // все IP — по категориям (unreachable/alive)
             var cat = string.IsNullOrWhiteSpace(category) ? "unreachable" : category;
             var dir = Path.Combine(_rootDir, _ts, cat);
             Directory.CreateDirectory(dir);
-            var safe = string.IsNullOrWhiteSpace(ip) ? "_common" : ip;
-            return Path.Combine(dir, $"{safe}.log");
+            return Path.Combine(dir, $"{ip}.log");
         }
 
         private static void TryMoveExisting(string ip, string oldCat, string newCat)

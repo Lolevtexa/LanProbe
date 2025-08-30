@@ -27,3 +27,4 @@ packages/
 LanProbe_*
 logs/
 out/
+data/raw/
