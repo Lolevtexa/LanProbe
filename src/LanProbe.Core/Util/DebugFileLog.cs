@@ -1,15 +1,10 @@
-using System;
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.IO;
-using System.Threading;
 
 namespace LanProbe.Core.Util
 {
     /// <summary>
-    /// Логгер с простой схемой:
-    ///   logs/<TS>/unreachable/<IP>.log — всё по умолчанию
-    ///   logs/<TS>/alive/<IP>.log       — после подтверждения живого
+    /// Класс DebugFileLog.
     /// </summary>
     public static class DebugFileLog
     {
@@ -25,6 +20,10 @@ namespace LanProbe.Core.Util
         private static readonly ConcurrentQueue<string> _queue = new();
         private static int _flushing = 0;
 
+        /// <summary>
+        /// Метод Init.
+        /// </summary>
+        /// <param name="rootDir">Параметр rootDir.</param>
         public static void Init(string? rootDir)
         {
             if (_inited) return;
@@ -41,7 +40,15 @@ namespace LanProbe.Core.Util
             }
         }
 
+        /// <summary>
+        /// Метод MarkAlive.
+        /// </summary>
+        /// <param name="ip">Параметр ip.</param>
         public static void MarkAlive(string ip) => SetCategory(ip, "alive");
+        /// <summary>
+        /// Метод MarkUnreachable.
+        /// </summary>
+        /// <param name="ip">Параметр ip.</param>
         public static void MarkUnreachable(string ip) => SetCategory(ip, "unreachable");
 
         private static void SetCategory(string ip, string category)
@@ -56,6 +63,11 @@ namespace LanProbe.Core.Util
                 TryMoveExisting(ip, oldCat, newCat);
         }
 
+        /// <summary>
+        /// Метод WriteLine.
+        /// </summary>
+        /// <param name="ip">Параметр ip.</param>
+        /// <param name="message">Параметр message.</param>
         public static void WriteLine(string ip, string message)
         {
             if (!_inited) Init(_rootDir);
@@ -106,8 +118,8 @@ namespace LanProbe.Core.Util
                 while (_queue.TryDequeue(out var item))
                 {
                     var idx = item.LastIndexOf(" >>", StringComparison.Ordinal);
-                    var text = idx >= 0 ? item.Substring(0, idx) : item;
-                    var path = idx >= 0 ? item.Substring(idx + 3) : PathFor("_common", "unreachable");
+                    var text = idx >= 0 ? item[..idx] : item;
+                    var path = idx >= 0 ? item[(idx + 3)..] : PathFor("_common", "unreachable");
 
                     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                     File.AppendAllText(path, text + Environment.NewLine);

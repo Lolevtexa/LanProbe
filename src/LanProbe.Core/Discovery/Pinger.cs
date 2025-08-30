@@ -6,6 +6,9 @@ using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Discovery;
 
+/// <summary>
+/// Класс Pinger.
+/// </summary>
 public static class Pinger {
     // TTL: "TTL=64" / "ttl = 128"
     static readonly Regex TtlRx = new(@"TTL\s*=\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);

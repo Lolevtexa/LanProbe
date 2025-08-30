@@ -1,0 +1,10 @@
+root = true
+
+[*.cs]
+# делаем “unused” жёсткими (а через TreatWarningsAsErrors они станут ошибками)
+dotnet_diagnostic.IDE0005.severity = warning   # неиспользуемые using
+dotnet_diagnostic.IDE0051.severity = warning   # приватный метод/поле не используется
+dotnet_diagnostic.IDE0052.severity = warning   # полю присвоено, но оно не читается
+dotnet_diagnostic.IDE0060.severity = warning   # параметр не используется
+dotnet_diagnostic.CS0168.severity  = warning   # объявлена, но не используется (переменная)
+dotnet_diagnostic.CS0219.severity  = warning   # присвоено и не используется (переменная)

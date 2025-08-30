@@ -1,16 +1,13 @@
-/// <summary>
-/// Комбинированный загрузчик OUI-таблиц (IEEE CSV/TXT, Wireshark manuf, Nmap prefixes) и быстрый резолвер.
-/// </summary>
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 
 using LanProbe.Core.Analysis;
 using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Net
 {
+    /// <summary>
+    /// Класс OuiVendorLookup.
+    /// </summary>
     public static class OuiVendorLookup
     {
         // Префикс -> (Vendor, Source)
@@ -20,7 +17,11 @@ namespace LanProbe.Core.Net
         private static bool _loaded = false;
         private static readonly object _lock = new();
 
-        // Инициализация (можно дергать один раз в Program.cs)
+        /// <summary>
+        /// Метод LoadAll.
+        /// </summary>
+        /// <param name="baseDir">Параметр baseDir.</param>
+
         public static void LoadAll(string baseDir = "data/oui")
         {
             if (_loaded) return;
@@ -37,7 +38,15 @@ namespace LanProbe.Core.Net
             }
         }
 
-        // Главный API
+        /// <summary>
+        /// Метод TryResolve.
+        /// </summary>
+        /// <param name="mac">Параметр mac.</param>
+        /// <param name="vendor">Параметр vendor.</param>
+        /// <param name="source">Параметр source.</param>
+        /// <param name="isRandomized">Параметр isRandomized.</param>
+        /// <param name="usedPrefix">Параметр usedPrefix.</param>
+        /// <returns>Результат выполнения.</returns>
         public static bool TryResolve(string mac, out string vendor, out string source, out bool isRandomized, out string usedPrefix)
         {
             vendor = "";
@@ -73,7 +82,7 @@ namespace LanProbe.Core.Net
                 .Replace("-", "")
                 .Replace(":", "")
                 .Replace(".", "");
-            if (s.Length >= 12) s = s.Substring(0, 12);
+            if (s.Length >= 12) s = s[..12];
             return s;
         }
 
@@ -82,19 +91,19 @@ namespace LanProbe.Core.Net
             if (string.IsNullOrEmpty(norm12) || norm12.Length < 6) yield break;
             // 24-bit OUI
             if (norm12.Length >= 6)
-                yield return $"{norm12.Substring(0, 6)}";
+                yield return $"{norm12[..6]}";
             // 28/36-bit (Wireshark manuf поддерживает 28/36)
             if (norm12.Length >= 7)
-                yield return $"{norm12.Substring(0, 7)}";
+                yield return $"{norm12[..7]}";
             if (norm12.Length >= 9)
-                yield return $"{norm12.Substring(0, 9)}";
+                yield return $"{norm12[..9]}";
         }
 
         private static bool IsLocallyAdministered(string norm12)
         {
             if (norm12.Length < 2) return false;
             // второй младший бит первого октета — локально администрируемый
-            byte b = byte.Parse(norm12.Substring(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            byte b = byte.Parse(norm12[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             return (b & 0x02) != 0;
         }
 
@@ -104,7 +113,7 @@ namespace LanProbe.Core.Net
             // нормализуем префикс: без разделителей, верхний регистр
             var p = prefix.Trim().ToUpperInvariant().Replace(":", "").Replace("-", "");
             if (p.Length < 6) return;
-            var key = p.Substring(0, 6).ToUpperInvariant();
+            var key = p[..6].ToUpperInvariant();
             _map[key] = (vendor.Trim(), src);
         }
 
@@ -185,7 +194,7 @@ namespace LanProbe.Core.Net
                 if (p.Length < 6) { skipped++; continue; }
                 if (p.Length < needLen) needLen = 6; // на всякий случай
 
-                var key = p.Substring(0, needLen);
+                var key = p[..needLen];
                 var vendor = orgRaw;
 
                 Add(key, vendor, "ieee.csv");
@@ -206,9 +215,9 @@ namespace LanProbe.Core.Net
                 if (line.Length < 10 || line.StartsWith("#")) continue;
                 var idx = line.IndexOf("(hex)", StringComparison.OrdinalIgnoreCase);
                 if (idx < 0) continue;
-                var asg = line.Substring(0, idx).Trim().Replace("-", "").Replace(":", "");
-                var org = line.Substring(idx + 5).Trim();
-                if (asg.Length >= 6) Add(asg.Substring(0, 6), org, "ieee.txt");
+                var asg = line[..idx].Trim().Replace("-", "").Replace(":", "");
+                var org = line[(idx + 5)..].Trim();
+                if (asg.Length >= 6) Add(asg[..6], org, "ieee.txt");
             }
             DebugFileLog.WriteLine("", $"[OUI][LOAD] ieee.txt loaded");
         }
@@ -231,7 +240,7 @@ namespace LanProbe.Core.Net
 
                 // уберём маску и разделители
                 var slash = key.IndexOf('/');
-                if (slash > 0) key = key.Substring(0, slash);
+                if (slash > 0) key = key[..slash];
                 var p = key.Replace(":", "").Replace("-", "").ToUpperInvariant();
                 if (p.Length >= 6) Add(p, org, "manuf");
             }
@@ -248,9 +257,9 @@ namespace LanProbe.Core.Net
                 if (line.Length < 8 || line.StartsWith("#")) continue;
                 var sp = line.IndexOf(' ');
                 if (sp <= 0) continue;
-                var asg = line.Substring(0, sp).Replace("-", "").Replace(":", "");
-                var org = line.Substring(sp + 1).Trim();
-                if (asg.Length >= 6) Add(asg.Substring(0, 6), org, "nmap");
+                var asg = line[..sp].Replace("-", "").Replace(":", "");
+                var org = line[(sp + 1)..].Trim();
+                if (asg.Length >= 6) Add(asg[..6], org, "nmap");
             }
             DebugFileLog.WriteLine("", $"[OUI][LOAD] nmap-mac-prefixes loaded");
         }
@@ -274,16 +283,26 @@ namespace LanProbe.Core.Net
 
 
     /// <summary>
-    /// Адаптер под интерфейс IOuiVendorLookup для использования в анализаторе.
+    /// Класс OuiVendorLookupAdapter.
     /// </summary>
     public sealed class OuiVendorLookupAdapter : IOuiVendorLookup
     {
+        /// <summary>
+        /// Метод Find.
+        /// </summary>
+        /// <param name="mac">Параметр mac.</param>
+        /// <returns>Результат выполнения.</returns>
         public string? Find(string? mac)
         {
             if (string.IsNullOrWhiteSpace(mac)) return null;
             return OuiVendorLookup.TryResolve(mac!, out var vendor, out _, out _, out _) ? vendor : null;
         }
 
+        /// <summary>
+        /// Метод IsLocallyAdministered.
+        /// </summary>
+        /// <param name="mac">Параметр mac.</param>
+        /// <returns>Результат выполнения.</returns>
         public bool IsLocallyAdministered(string? mac)
         {
             if (string.IsNullOrWhiteSpace(mac)) return false;
@@ -292,7 +311,7 @@ namespace LanProbe.Core.Net
             {
                 var s = mac!.Replace("-", "").Replace(":", "").Replace(".", "");
                 if (s.Length < 2) return false;
-                var first = Convert.ToByte(s.Substring(0, 2), 16);
+                var first = Convert.ToByte(s[..2], 16);
                 return (first & 0x02) != 0;
             }
             catch { return false; }

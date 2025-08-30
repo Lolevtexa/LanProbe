@@ -1,8 +1,15 @@
 namespace LanProbe.Core.Enrichment;
 
+/// <summary>
+/// Класс MacVendorLookup.
+/// </summary>
 public class MacVendorLookup {
     private readonly Dictionary<string,string> _db = new();
 
+    /// <summary>
+    /// Конструктор MacVendorLookup.
+    /// </summary>
+    /// <param name="filePath">Параметр filePath.</param>
     public MacVendorLookup(string filePath) {
         if (File.Exists(filePath)) {
             foreach (var line in File.ReadLines(filePath)) {
@@ -12,6 +19,11 @@ public class MacVendorLookup {
         }
     }
 
+    /// <summary>
+    /// Метод Find.
+    /// </summary>
+    /// <param name="mac">Параметр mac.</param>
+    /// <returns>Результат выполнения.</returns>
     public string? Find(string? mac) {
         if (mac == null) return null;
         var prefix = string.Join("-", mac.Split('-').Take(3));

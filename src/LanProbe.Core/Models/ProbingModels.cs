@@ -1,8 +1,8 @@
-using System.Text.Json.Serialization;
-
 namespace LanProbe.Core.Models;
 
-/// Результат проверки конкретного TCP-порта
+/// <summary>
+/// Запись PortProbe.
+/// </summary>
 public sealed record PortProbe(
     int Port,
     bool Open,
@@ -10,7 +10,9 @@ public sealed record PortProbe(
     string? ServiceGuess
 );
 
-/// Ключевые HTTP-поля
+/// <summary>
+/// Запись HttpInfo.
+/// </summary>
 public sealed record HttpInfo(
     string? StatusLine,
     Dictionary<string,string>? Headers,
@@ -20,7 +22,9 @@ public sealed record HttpInfo(
     bool   IsCompressed    // gzip/deflate
 );
 
-/// TLS-метаданные
+/// <summary>
+/// Запись TlsInfo.
+/// </summary>
 public sealed record TlsInfo(
     string? Version,
     string? CipherSuite,
@@ -33,7 +37,9 @@ public sealed record TlsInfo(
     bool?  SelfSigned      // Issuer == Subject?
 );
 
-/// Обобщённый баннер/метаданные порта
+/// <summary>
+/// Запись PortBanner.
+/// </summary>
 public sealed record PortBanner(
     int Port,
     string Probe,          // "http/head","http/get","tls/cert","ssh/banner","generic/peek","rdp/neg","smb2/neg","vnc/banner","rtsp/options","fact/open"

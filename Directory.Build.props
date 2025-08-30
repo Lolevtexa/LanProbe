@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- Поднимаем именно сигналы «неиспользуется» -->
+  <PropertyGroup>
+    <WarningsAsErrors>
+      IDE0005;  <!-- неиспользуемые using -->
+      IDE0051;  <!-- приватные члены не используются -->
+      IDE0052;  <!-- присваивается, но не читается -->
+      IDE0057;  <!-- параметр можно сделать in -->
+      IDE0060;  <!-- параметр не используется -->
+      IDE0063;  <!-- using var -->
+      CS0168;   <!-- объявлена, но не используется -->
+      CS0219    <!-- присвоено значение, но не используется -->
+    </WarningsAsErrors>
+  </PropertyGroup>
+</Project>

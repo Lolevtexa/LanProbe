@@ -1,10 +1,3 @@
-/// <summary>
-/// Экспорт итогов анализа в JSON/CSV/Markdown. «Сигналы безопасности» удалены.
-/// </summary>
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using LanProbe.Core.Analysis;
@@ -12,16 +5,29 @@ using LanProbe.Core.Analysis;
 namespace LanProbe.Core.Export
 {
     /// <summary>
-    /// Экспорт итогов анализа: JSON, CSV и Markdown. Раздел «Сигналы безопасности» удалён.
+    /// Класс AnalysisExport.
     /// </summary>
     public static class AnalysisExport
     {
+        /// <summary>
+        /// Метод SaveJson.
+        /// </summary>
+        /// <param name="path">Параметр path.</param>
+        /// <param name="results">Параметр results.</param>
+        /// <summary>
+        /// Документация для SaveJson.
+        /// </summary>
         public static void SaveJson(string path, IEnumerable<DeviceAnalysisResult> results)
         {
             var opts = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(path, JsonSerializer.Serialize(results, opts));
         }
 
+        /// <summary>
+        /// Метод SaveCsv.
+        /// </summary>
+        /// <param name="path">Параметр path.</param>
+        /// <param name="results">Параметр results.</param>
         public static void SaveCsv(string path, IEnumerable<DeviceAnalysisResult> results)
         {
             var sb = new StringBuilder();
@@ -35,6 +41,11 @@ namespace LanProbe.Core.Export
             File.WriteAllText(path, sb.ToString());
         }
 
+        /// <summary>
+        /// Метод SaveMarkdown.
+        /// </summary>
+        /// <param name="path">Параметр path.</param>
+        /// <param name="results">Параметр results.</param>
         public static void SaveMarkdown(string path, IEnumerable<DeviceAnalysisResult> results)
         {
             var list = results.OrderBy(r => r.Ip, StringComparer.OrdinalIgnoreCase).ToList();

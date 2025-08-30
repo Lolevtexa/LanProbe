@@ -2,17 +2,24 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using LanProbe.Core.Models;
-using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Scanning;
 
-/// Быстрый TCP-скан через Connect; возвращает PortProbe со временем установки соединения.
+/// <summary>
+/// Класс PortScanner.
+/// </summary>
 public sealed class PortScanner
 {
     private readonly int[] _ports;
     private readonly int _connectTimeoutMs;
     private readonly int _perHostConcurrency;
 
+    /// <summary>
+    /// Конструктор PortScanner.
+    /// </summary>
+    /// <param name="ports">Параметр ports.</param>
+    /// <param name="connectTimeoutMs">Параметр connectTimeoutMs.</param>
+    /// <param name="perHostConcurrency">Параметр perHostConcurrency.</param>
     public PortScanner(IEnumerable<int> ports, int connectTimeoutMs = 1200, int perHostConcurrency = 64)
     {
         _ports = ports.Distinct().OrderBy(p => p).ToArray();
@@ -20,6 +27,9 @@ public sealed class PortScanner
         _perHostConcurrency = Math.Max(1, perHostConcurrency);
     }
 
+    /// <summary>
+    /// Документация для ScanAsync.
+    /// </summary>
     public async Task<IReadOnlyList<PortProbe>> ScanAsync(
         IPAddress target,
         IPAddress? bindOnInterface,

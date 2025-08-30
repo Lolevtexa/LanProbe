@@ -1,3 +1,20 @@
 namespace LanProbe.Core.Models;
 
-public enum AliveSource { None, Icmp, Arp }
+/// <summary>
+/// Перечисление AliveSource.
+/// </summary>
+public enum AliveSource
+{
+    /// <summary>
+    /// Значение None.
+    /// </summary>
+    None,
+    /// <summary>
+    /// Значение Icmp.
+    /// </summary>
+    Icmp,
+    /// <summary>
+    /// Значение Arp.
+    /// </summary>
+    Arp
+}

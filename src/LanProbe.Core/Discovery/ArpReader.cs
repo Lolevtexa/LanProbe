@@ -1,23 +1,37 @@
 using LanProbe.Core.Util;
-// src/LanProbe.Core/Discovery/ArpReader.cs
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace LanProbe.Core.Discovery;
 
+/// <summary>
+/// Запись ArpEntry.
+/// </summary>
 public record ArpEntry(string InterfaceIp, string Ip, string Mac, string Type);
 
+/// <summary>
+/// Документация для ArpReader.
+/// </summary>
 public static class ArpReader {
     // IP   +   MAC                + тип (одно "слово"): динамический/static и т.п.
     static readonly Regex Line = new(@"^\s*(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F\-]{17})\s+(\S+)", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Метод ResolveArpPath.
+    /// </summary>
+    /// <returns>Результат выполнения.</returns>
     public static string ResolveArpPath() {
         var sys32 = Environment.ExpandEnvironmentVariables(@"%SystemRoot%\System32\arp.exe");
         return File.Exists(sys32) ? sys32 : "arp";
     }
 
     // Сырой вывод arp -a -N <ifaceIp> для логов
+    /// <summary>
+    /// Метод RawOutput.
+    /// </summary>
+    /// <param name="interfaceIp">Параметр interfaceIp.</param>
+    /// <returns>Результат выполнения.</returns>
     public static string RawOutput(string interfaceIp) {
         var p = new Process {
             StartInfo = new ProcessStartInfo {
@@ -37,6 +51,11 @@ public static class ArpReader {
     }
 
     // Снимок только для указанного интерфейса — не парсим заголовки вообще
+    /// <summary>
+    /// Метод Snapshot.
+    /// </summary>
+    /// <param name="interfaceIp">Параметр interfaceIp.</param>
+    /// <returns>Результат выполнения.</returns>
     public static List<ArpEntry> Snapshot(string interfaceIp) {
         var p = new Process {
             StartInfo = new ProcessStartInfo {
@@ -69,6 +88,11 @@ public static class ArpReader {
     }
 
     // Очистка + реальная проверка
+    /// <summary>
+    /// Метод ClearAllAndVerify.
+    /// </summary>
+    /// <param name="interfaceIp">Параметр interfaceIp.</param>
+    /// <returns>Результат выполнения.</returns>
     public static bool ClearAllAndVerify(string interfaceIp) {
         try {
             var p = new Process {

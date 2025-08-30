@@ -10,6 +10,9 @@ using System.Net;
 using System.Text;
 using System.Linq;
 
+/// <summary>
+/// Класс Program.
+/// </summary>
 internal static class Program
 {
     private static async Task<int> Main(string[] args)
@@ -68,7 +71,6 @@ internal static class Program
         var pingTasks = new List<Task<(string ip, (bool ok, long bestRttMs, int ttl, int successCount) pr)>>();
         foreach (var ip in ips)
         {
-            // Любые строчки до классификации сразу попадут в logs/<ip>/unreachable/<TS>.log
             DebugFileLog.WriteLine(ip, "[DISCOVER] probing...");
             pingTasks.Add(Task.Run(async () =>
             {
@@ -94,12 +96,10 @@ internal static class Program
 
             if (!pr.ok && !arpOk)
             {
-                // Так и остаётся в unreachable: не добавляем в facts => не пойдёт в обогащение/анализ
-                DebugFileLog.WriteLine(ip, "[DISCOVER] still unreachable (no ICMP & no ARP)");
+                DebugFileLog.WriteLine(ip, "[DISCOVER] unreachable (no ICMP & no ARP)");
                 continue;
             }
 
-            // С этого момента IP — живой: переносим лог в alive/ и дальше пишем туда
             DebugFileLog.MarkAlive(ip);
             DebugFileLog.WriteLine(ip, $"[DISCOVER] alive via {(pr.ok ? "ICMP" : "ARP")}");
 
@@ -135,22 +135,26 @@ internal static class Program
     private static async Task<List<DeviceFact>> ScanPortsAndGrabBanners(RunConfig cfg, IEnumerable<DeviceFact> facts)
     {
         var alive = facts.Where(f => f.IcmpOk || f.ArpOk).ToList();
+
         var ports = new[] { 22, 23, 53, 80, 81, 82, 88, 139, 143, 389, 443, 445, 554, 555, 631, 8008, 8080, 8443, 9000, 9090, 49152 };
         var scanner = new PortScanner(ports, cfg.ConnectTimeoutMs, cfg.PortScanConcurrency);
         var grabber = new BannerGrabber(cfg.BannerTimeoutMs);
 
         var enriched = new List<DeviceFact>();
+
         foreach (var f in alive)
         {
+            DebugFileLog.WriteLine(f.Ip, "[ENRICH] scanning ports...");
             var probes = await scanner.ScanAsync(
                 System.Net.IPAddress.Parse(f.Ip),
                 string.IsNullOrWhiteSpace(f.InterfaceIp) ? null : System.Net.IPAddress.Parse(f.InterfaceIp),
                 null,
                 CancellationToken.None
             );
-            var open = probes.Where(p => p.Open).Select(p => p.Port).ToArray();
+
+            var open = probes.Where(p => p.Open).Select(p => p.Port).OrderBy(x => x).ToArray();
             if (open.Length > 0)
-                DebugFileLog.WriteLine(f.Ip, $"[SCAN][DEBUG] open={string.Join(',', open)}");
+                DebugFileLog.WriteLine(f.Ip, $"[SCAN] open={string.Join(',', open)}");
 
             var bannersList = await grabber.GrabAsync(
                 System.Net.IPAddress.Parse(f.Ip),
@@ -158,10 +162,9 @@ internal static class Program
                 string.IsNullOrWhiteSpace(f.InterfaceIp) ? null : System.Net.IPAddress.Parse(f.InterfaceIp),
                 CancellationToken.None
             );
-            DebugFileLog.WriteLine(f.Ip, $"[BANNER][DEBUG] grabbed={bannersList.Count}");
 
-            var banners = bannersList.ToArray();
-            enriched.Add(f with { OpenPorts = open, Banners = banners });
+            DebugFileLog.WriteLine(f.Ip, $"[BANNER] grabbed={bannersList.Count}");
+            enriched.Add(f with { OpenPorts = open, Banners = bannersList.ToArray() });
         }
 
         return enriched;

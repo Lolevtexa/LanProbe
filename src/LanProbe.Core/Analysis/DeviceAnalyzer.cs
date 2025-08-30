@@ -1,29 +1,50 @@
-/// <summary>
-/// Анализ устройств по фактам (порты/баннеры/TTL/RTT) с формированием классификации и объяснений (reasons).
-/// Поле risks удалено в этом релизе.
-/// </summary>
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using LanProbe.Core.Models;
 
 namespace LanProbe.Core.Analysis
 {
+    /// <summary>
+    /// Класс AnalysisOptions.
+    /// </summary>
     public sealed class AnalysisOptions
     {
+        /// <summary>
+        /// Свойство HighRttMs.
+        /// </summary>
         public int HighRttMs { get; init; } = 30;
+        /// <summary>
+        /// Свойство NowUtc.
+        /// </summary>
         public DateTime NowUtc { get; init; } = DateTime.UtcNow;
+        /// <summary>
+        /// Свойство IncludeRawLinks.
+        /// </summary>
         public bool IncludeRawLinks { get; init; } = false;
     }
 
+    /// <summary>
+    /// Provides methods for looking up vendor information based on MAC addresses and checking if a MAC address is locally administered.
+    /// </summary>
     public interface IOuiVendorLookup
     {
+        /// <summary>
+        /// Finds the vendor name associated with the specified MAC address.
+        /// </summary>
+        /// <param name="mac">The MAC address to look up.</param>
+        /// <returns>The vendor name if found; otherwise, null.</returns>
         string? Find(string? mac);
+        /// <summary>
+        /// Determines whether the specified MAC address is locally administered.
+        /// </summary>
+        /// <param name="mac">The MAC address to check.</param>
+        /// <returns>True if the MAC address is locally administered; otherwise, false.</returns>
         bool IsLocallyAdministered(string? mac);
     }
 
+    /// <summary>
+    /// Запись TlsEntry.
+    /// </summary>
     public sealed record TlsEntry(
         string? Version,
         string? CipherSuite,
@@ -35,6 +56,9 @@ namespace LanProbe.Core.Analysis
         DateTimeOffset? NotAfter
     );
 
+    /// <summary>
+    /// Запись ServiceEntry.
+    /// </summary>
     public sealed record ServiceEntry(
         int Port,
         string Service,
@@ -50,6 +74,9 @@ namespace LanProbe.Core.Analysis
         TlsEntry? Tls
     );
 
+    /// <summary>
+    /// Запись DeviceClassification.
+    /// </summary>
     public sealed record DeviceClassification(
         string Kind,
         string OsGuess,
@@ -59,6 +86,9 @@ namespace LanProbe.Core.Analysis
         List<(string Kind, double Score)> Alternatives
     );
 
+    /// <summary>
+    /// Запись DeviceAnalysisResult.
+    /// </summary>
     public sealed record DeviceAnalysisResult(
         [property: JsonPropertyName("ip")] string Ip,
         [property: JsonPropertyName("mac")] string? Mac,
@@ -73,16 +103,33 @@ namespace LanProbe.Core.Analysis
         [property: JsonPropertyName("summary")] string Summary
     );
 
+    /// <summary>
+    /// Класс DeviceAnalyzer.
+    /// </summary>
     public static class DeviceAnalyzer
     {
         static readonly Regex HttpStatusRx = new(@"^\s*HTTP/\d\.\d\s+(\d{3})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        /// <summary>
+        /// Метод AnalyzeAll.
+        /// </summary>
+        /// <param name="facts">Параметр facts.</param>
+        /// <param name="oui">Параметр oui.</param>
+        /// <param name="options">Параметр options.</param>
+        /// <returns>Результат выполнения.</returns>
         public static List<DeviceAnalysisResult> AnalyzeAll(IEnumerable<DeviceFact> facts, IOuiVendorLookup? oui, AnalysisOptions? options = null)
         {
             options ??= new AnalysisOptions();
             return facts.Select(f => AnalyzeDevice(f, oui, options)).ToList();
         }
 
+        /// <summary>
+        /// Метод AnalyzeDevice.
+        /// </summary>
+        /// <param name="f">Параметр f.</param>
+        /// <param name="oui">Параметр oui.</param>
+        /// <param name="options">Параметр options.</param>
+        /// <returns>Результат выполнения.</returns>
         public static DeviceAnalysisResult AnalyzeDevice(DeviceFact f, IOuiVendorLookup? oui, AnalysisOptions options)
         {
             // ===== Vendor =====
@@ -134,7 +181,7 @@ namespace LanProbe.Core.Analysis
                             // используем ту же эвристику, что и внутри OuiVendorLookup
                             var macHex = f.Mac.Replace("-", "").Replace(":", "").Replace(".", "");
                             if (macHex.Length >= 2 &&
-                                (byte.Parse(macHex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber) & 0x02) != 0)
+                                (byte.Parse(macHex.AsSpan(0, 2), System.Globalization.NumberStyles.HexNumber) & 0x02) != 0)
                             {
                                 isRand = true;
                                 vendor = "(randomized)";
@@ -150,7 +197,7 @@ namespace LanProbe.Core.Analysis
                 // Вендор уже дан из facts — но определим флаг randomized для анализа
                 var macHex = f.Mac.Replace("-", "").Replace(":", "").Replace(".", "");
                 if (macHex.Length >= 2 &&
-                    (byte.Parse(macHex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber) & 0x02) != 0)
+                    (byte.Parse(macHex.AsSpan(0, 2), System.Globalization.NumberStyles.HexNumber) & 0x02) != 0)
                     isRand = true;
             }
 
@@ -430,6 +477,9 @@ namespace LanProbe.Core.Analysis
         }
     }
 
+    /// <summary>
+    /// Класс HashSetExt.
+    /// </summary>
     internal static class HashSetExt
     {
         public static bool Overlaps(this HashSet<int> set, IEnumerable<int> other)

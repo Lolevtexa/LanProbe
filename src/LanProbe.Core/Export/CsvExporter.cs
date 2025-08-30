@@ -3,7 +3,13 @@ using System.Text;
 
 namespace LanProbe.Core.Export;
 
+/// <summary>
+/// Класс CsvExporter.
+/// </summary>
 public static class CsvExporter {
+    /// <summary>
+    /// Документация для Save.
+    /// </summary>
     public static void Save(string path, IEnumerable<DeviceFact> facts) {
         var sb = new StringBuilder();
         sb.AppendLine("ts,iface,ip,icmp_ok,rtt_ms,ttl,arp_ok,mac,vendor,alive_source,silent_host,proxy_arp,route_mismatch");

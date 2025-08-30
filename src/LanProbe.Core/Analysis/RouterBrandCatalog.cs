@@ -1,10 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace LanProbe.Core.Analysis
 {
+    /// <summary>
+    /// Класс RouterBrandCatalog.
+    /// </summary>
     internal static class RouterBrandCatalog
     {
         private static readonly (string Brand, string[] Keywords, string[] Domains)[] Map =
@@ -32,6 +32,12 @@ namespace LanProbe.Core.Analysis
             ("Arris",      new[] { "arris" },                                 Array.Empty<string>()),
         };
 
+        /// <summary>
+        /// Метод TryDetect.
+        /// </summary>
+        /// <param name="haystack">Параметр haystack.</param>
+        /// <param name="brand">Параметр brand.</param>
+        /// <returns>Результат выполнения.</returns>
         public static bool TryDetect(string haystack, out string brand)
         {
             brand = "";

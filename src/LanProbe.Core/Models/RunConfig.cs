@@ -1,16 +1,28 @@
-using System;
 using System.Text.Json.Serialization;
 
 namespace LanProbe.Core.Models
 {
     /// <summary>
-    /// Режимы запуска CLI.
+    /// Перечисление RunMode.
     /// </summary>
-    public enum RunMode { Debug, Log, Quiet }
+    public enum RunMode
+    {
+        /// <summary>
+        /// Значение Debug.
+        /// </summary>
+        Debug,
+        /// <summary>
+        /// Значение Log.
+        /// </summary>
+        Log,
+        /// <summary>
+        /// Значение Quiet.
+        /// </summary>
+        Quiet
+    }
 
     /// <summary>
-    /// Централизованная конфигурация запуска.
-    /// Все пути/таймауты/конкурентность хранятся здесь и передаются между стадиями.
+    /// Запись RunConfig.
     /// </summary>
     public sealed record RunConfig(
         [property: JsonPropertyName("cidr")]            string Cidr,

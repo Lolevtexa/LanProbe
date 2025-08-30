@@ -9,13 +9,12 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using LanProbe.Core.Models;
-using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Scanning;
 
-/// Богатые баннеры для открытых портов: HTTP/HTTPS(+GET+gzip+title+generator), SSH, RDP, SMB2, VNC, RTSP.
-/// Плюс: self-signed, redirect URL, SHA1 контента, дубли между 80 и 8080.
-/// Можно включить сохранение «сырого» ответа в data/raw.
+/// <summary>
+/// Класс BannerGrabber.
+/// </summary>
 public sealed class BannerGrabber
 {
     private readonly int _timeoutMs;
@@ -30,6 +29,13 @@ public sealed class BannerGrabber
     private static readonly HashSet<int> PeekTextPorts = new([21,25,110,143,6379,11211]);
     private static readonly HashSet<int> FactOnly = new([5357,]); // WSD и прочие «молчуны», где делаем лишь факт open
 
+    /// <summary>
+    /// Конструктор BannerGrabber.
+    /// </summary>
+    /// <param name="timeoutMs">Параметр timeoutMs.</param>
+    /// <param name="maxBytes">Параметр maxBytes.</param>
+    /// <param name="saveRaw">Параметр saveRaw.</param>
+    /// <param name="rawDir">Параметр rawDir.</param>
     public BannerGrabber(int timeoutMs = 2000, int maxBytes = 64_000, bool saveRaw = false, string rawDir = "data/raw")
     {
         _timeoutMs = timeoutMs;
@@ -39,6 +45,9 @@ public sealed class BannerGrabber
         if (_saveRaw) Directory.CreateDirectory(_rawDir);
     }
 
+    /// <summary>
+    /// Документация для GrabAsync.
+    /// </summary>
     public async Task<IReadOnlyList<PortBanner>> GrabAsync(
         IPAddress target,
         IEnumerable<PortProbe> openProbes,
