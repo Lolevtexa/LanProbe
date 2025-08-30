@@ -25,3 +25,5 @@ packages/
 # Логи
 *.log
 LanProbe_*
+
+data/
