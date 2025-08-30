@@ -114,7 +114,7 @@ class Program
         };
 
         var portScanner   = new PortScanner(portsToScan, connectTimeoutMs: 1100, perHostConcurrency: 64);
-        var bannerGrabber = new BannerGrabber(timeoutMs: 1800, maxBytes: 24_000);
+        var bannerGrabber = new BannerGrabber(timeoutMs: 2000, maxBytes: 64_000, saveRaw: true, rawDir: "data/raw");
 
         IPAddress? bindOnInterface = IPAddress.Parse(localIf);
         var ct = new CancellationTokenSource(TimeSpan.FromMinutes(5)).Token;
