@@ -27,3 +27,5 @@ packages/
 LanProbe_*
 
 data/
+!data/vendors/
+out/
