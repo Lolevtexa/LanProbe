@@ -259,37 +259,39 @@ namespace LanProbe.Core.Analysis
                        Dictionary<string, double> scores, List<string> reasons, List<(string, double)> alt)
         Classify(DeviceFact f, List<ServiceEntry> svc, string? vendor)
         {
-            // ===== helpers =====
             var reasons = new List<string>();
 
             double scorePrinter = 0, scoreCamera = 0, scoreRouter = 0, scoreNas = 0,
                    scorePcWin = 0, scorePcUnix = 0, scorePhone = 0, scoreIot = 0;
 
             var open = new HashSet<int>(f.OpenPorts ?? Array.Empty<int>());
+
             string bannersText = string.Join(" ",
                 svc.Select(s => $"{s.Server} {s.Title} {s.Generator} {s.Tls?.Cn} {s.Tls?.Issuer} {s.RedirectTo}"))
                 .ToLowerInvariant();
+
             string v = vendor?.ToLowerInvariant() ?? "";
 
             bool HasAny(params int[] ports) => open.Overlaps(ports);
-            static bool ContainsAny(string s, params string[] kws) => kws.Any(k => s.Contains(k, StringComparison.OrdinalIgnoreCase));
+            static bool ContainsAny(string s, params string[] kws) =>
+                kws.Any(k => s.Contains(k, StringComparison.OrdinalIgnoreCase));
 
-            // ===== базовые по портам =====
+            // ===== ПОРТЫ =====
             if (HasAny(9100, 515, 631)) { scorePrinter += 1.5; reasons.Add("ports:print(9100/515/631)"); }
             if (HasAny(554) || HasAny(37777) || HasAny(8765)) { scoreCamera += 2.0; reasons.Add("ports:camera(554/37777/8765)"); }
             if (HasAny(53, 23, 8291)) { scoreRouter += 1.2; reasons.Add("ports:router(53/23/8291)"); }
             if (HasAny(5000, 5001, 9000, 32400)) { scoreNas += 2.0; reasons.Add("ports:nas(5000/5001/9000/32400)"); }
             if (HasAny(445, 3389, 5985, 5986)) { scorePcWin += 1.7; reasons.Add("ports:windows(445/3389/5985/5986)"); }
-            if (HasAny(22)) { scorePcUnix += 1.0; reasons.Add("port:ssh(22)"); } // немного ослабили SSH против телефонов
+            if (HasAny(22)) { scorePcUnix += 1.0; reasons.Add("port:ssh(22)"); }
             if (HasAny(1883, 5683)) { scoreIot += 1.0; reasons.Add("ports:iot(1883/5683)"); }
 
-            // ===== баннеры =====
+            // ===== БАННЕРЫ =====
             if (ContainsAny(bannersText, "jetdirect") || ContainsAny(bannersText, "ipp")) scorePrinter += 1.0;
             if (ContainsAny(bannersText, "hikvision", "dahua", "goahead")) scoreCamera += 1.5;
             if (ContainsAny(bannersText, "routeros", "openwrt", "airmax")) { scoreRouter += 1.5; reasons.Add("banner:routeros/openwrt/airmax"); }
             if (ContainsAny(bannersText, "synology", "qnap")) { scoreNas += 2.0; reasons.Add("banner:synology/qnap"); }
 
-            // ===== vendor =====
+            // ===== VENDOR (OUI) =====
             if (ContainsAny(v, "hp", "hewlett", "brother", "canon", "epson")) scorePrinter += 1.8;
             if (ContainsAny(v, "hikvision", "dahua", "axis")) scoreCamera += 1.5;
             if (ContainsAny(v, "tplink", "tp-link", "mikrotik", "ubiquiti", "uap", "d-link", "zyxel", "xiaomi"))
@@ -299,22 +301,29 @@ namespace LanProbe.Core.Analysis
 
             bool phoneBrand = ContainsAny(v, "apple", "samsung", "xiaomi", "huawei", "honor", "oneplus", "google", "motorola", "oppo", "vivo");
 
-            // ===== TTL → OS (подсказка, не финальный выбор) =====
-            string osGuess = f.Ttl >= 200 ? "Network/Router" :
-                             (f.Ttl >= 120 ? "Windows" :
-                             (f.Ttl >= 60 ? "Linux/Unix" : "Unknown"));
+            // ===== TTL → OS =====
+            string osGuess = f.Ttl >= 200 ? "Network/Router"
+                          : (f.Ttl >= 120 ? "Windows"
+                          : (f.Ttl >= 60 ? "Linux/Unix" : "Unknown"));
             reasons.Add($"ttl:{f.Ttl}→{osGuess}");
 
-            // Ослабим TTL-весы, чтобы они не «ломали» телефоны
             if (osGuess == "Windows") scorePcWin += 0.4;
             if (osGuess == "Linux/Unix") scorePcUnix += 0.3;
             if (osGuess == "Network/Router") scoreRouter += 0.8;
 
-            // ===== сильные сигналы роутера =====
+            // ===== СИЛЬНЫЕ СИГНАЛЫ РОУТЕРА =====
             bool hasWeb = HasAny(80, 443, 8080);
             bool routerCn = ContainsAny(bannersText, "router.", " router", "miwifi", "routerlogin", "fritz.box");
             bool routerIssuer = ContainsAny(bannersText, "xiaomi", "mikrotik", "ubiquiti", "tplink", "tp-link", "netgear", "zyxel", "asustek", "keenetic");
             bool gwIp = f.Ip.EndsWith(".1", StringComparison.Ordinal) || f.Ip.EndsWith(".254", StringComparison.Ordinal);
+
+            string detectedRouterBrand = "";
+            if (hasWeb && RouterBrandCatalog.TryDetect(bannersText, out var rb))
+            {
+                detectedRouterBrand = rb;
+                scoreRouter += 1.8;
+                reasons.Add($"router.brand:{rb}");
+            }
 
             if (hasWeb && (routerCn || routerIssuer || gwIp))
             {
@@ -324,39 +333,32 @@ namespace LanProbe.Core.Analysis
                 if (gwIp) reasons.Add("ip:suspected-gateway(.1/.254)");
             }
 
-            // ===== Android/Phone vs обычный Linux =====
+            if (!string.IsNullOrEmpty(detectedRouterBrand))
+            {
+                scorePcUnix -= 0.2;
+                scorePcWin -= 0.2;
+            }
+
+            // ===== ТЕЛЕФОНЫ =====
             bool randomized = string.Equals(vendor, "(randomized)", StringComparison.OrdinalIgnoreCase);
             bool hasServerish = HasAny(22, 445, 3389, 5432, 3306);
 
-            // Буст для «обычных» телефонов (есть web, нет серверных портов)
             if ((randomized || phoneBrand) && hasWeb && !hasServerish)
             {
                 scorePhone += 1.8;
                 reasons.Add(randomized ? "mac:randomized" : "vendor:phone-brand");
             }
 
-            // *** FORCE-ПРАВИЛО: randomized MAC + НЕТ открытых портов → Phone/Tablet ***
             if (randomized && open.Count == 0)
             {
-                scorePhone += 3.5;             // гарантированно перебивает TTL
-                scorePcUnix = Math.Max(0, scorePcUnix - 0.3); // чуть приглушаем «Linux по TTL»
+                scorePhone += 3.5;
+                scorePcUnix = Math.Max(0, scorePcUnix - 0.3);
                 reasons.Add("mac:randomized; no-open-ports");
             }
 
-            // При наличии серверных портов понижаем вероятность «телефона»
             if (hasServerish) scorePhone -= 0.6;
 
-            // ===== логирование входных признаков =====
-            try
-            {
-                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} ttl={f.Ttl} vendor='{vendor}' " +
-                                  $"rand={randomized} phoneBrand={phoneBrand} hasWeb={hasWeb} " +
-                                  $"routerCn={routerCn} routerIssuer={routerIssuer} gwIp={gwIp} " +
-                                  $"serverish={hasServerish} open=[{string.Join(",", open.OrderBy(x => x))}]");
-            }
-            catch { /* консоль может быть недоступна в тестах */ }
-
-            // ===== нормализация и выбор =====
+            // ===== СВОДКА =====
             var table = new (string kind, double s)[] {
         ("Printer",scorePrinter),("Camera",scoreCamera),("Router",scoreRouter),("NAS",scoreNas),
         ("PC/Windows",scorePcWin),("PC/Unix",scorePcUnix),("Phone/Tablet",scorePhone),("IoT",scoreIot)
@@ -366,19 +368,27 @@ namespace LanProbe.Core.Analysis
             double total = table.Sum(x => Math.Max(0, x.s));
             double conf = total > 0 ? Math.Round(Math.Max(0, best.s) / total, 2) : 0.0;
 
-            // Предпочтение Router при сильных признаках
-            if (hasWeb && (routerCn || routerIssuer || gwIp) && scoreRouter >= best.s * 0.9)
+            if (hasWeb && (routerCn || routerIssuer || gwIp || !string.IsNullOrEmpty(detectedRouterBrand)) &&
+                scoreRouter >= best.s * 0.9)
+            {
                 best = ("Router", scoreRouter);
+            }
 
             var alternatives = table.OrderByDescending(x => x.s).Take(3).ToList();
 
-            // ===== логирование итоговых score/причин =====
+            // ===== ДЕБАГ ВЫВОД =====
             try
             {
+                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} ttl={f.Ttl} vendor='{vendor}' " +
+                                  $"rand={randomized} phoneBrand={phoneBrand} hasWeb={hasWeb} " +
+                                  $"routerCn={routerCn} routerIssuer={routerIssuer} gwIp={gwIp} " +
+                                  $"detectedBrand='{detectedRouterBrand}' open=[{string.Join(",", open.OrderBy(x => x))}]");
+
                 var scoresStr = string.Join(", ", table.Select(t => $"{t.kind}={Math.Max(0, t.s):0.00}"));
                 Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} scores: {scoresStr}");
                 Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} reasons: {string.Join("; ", reasons)}");
-                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} => best={best.kind} conf={conf:0.00} alt=[{string.Join(", ", alternatives.Select(a => $"{a.kind}:{Math.Max(0, a.s):0.00}"))}]");
+                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} => best={best.kind} conf={conf:0.00} " +
+                                  $"alt=[{string.Join(", ", alternatives.Select(a => $"{a.kind}:{Math.Max(0, a.s):0.00}"))}]");
             }
             catch { }
 

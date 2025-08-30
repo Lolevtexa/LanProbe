@@ -42,7 +42,14 @@ namespace LanProbe.Core.Export
             sb.AppendLine("## Сервисы по хостам\n");
             foreach (var r in list)
             {
-                sb.AppendLine($"**{r.Ip}** — {r.Classification.Kind} ({r.Classification.OsGuess}), vendor: {r.Vendor}\n");
+                string vendorOut = r.Vendor ?? "";
+                var brand = r.Classification.Reasons
+                    .FirstOrDefault(x => x.StartsWith("router.brand:", StringComparison.OrdinalIgnoreCase));
+                if (string.IsNullOrWhiteSpace(vendorOut) && brand != null)
+                    vendorOut = brand.Substring("router.brand:".Length).Trim();
+
+                sb.AppendLine($"**{r.Ip}** — {r.Classification.Kind} ({r.Classification.OsGuess}), vendor: {vendorOut}\n");
+
                 if (r.Services.Count == 0) { sb.AppendLine(); continue; }
                 sb.AppendLine("| Порт | Сервис | Статус | Сервер | Заголовок/Title | Редирект | TLS |");
                 sb.AppendLine("|---:|---|---|---|---|---|---|");
