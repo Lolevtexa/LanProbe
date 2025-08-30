@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Discovery;
 
@@ -70,6 +71,7 @@ public static class Pinger {
             if (i + 1 < attempts) await Task.Delay(delayBetweenMs);
         }
 
+        DebugFileLog.WriteLine(ip, $"[ICMP][DEBUG] final ok={anyOk} rtt={bestRtt} ttl={lastTtl}; succ=[{string.Join(",", succ)}]");
         if (!anyOk || bestRtt == long.MaxValue) bestRtt = -1;
         return (anyOk, bestRtt, lastTtl, succ);
     }

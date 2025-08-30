@@ -9,6 +9,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using LanProbe.Core.Models;
+using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Scanning;
 

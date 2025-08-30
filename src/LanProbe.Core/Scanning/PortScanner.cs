@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using LanProbe.Core.Models;
+using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Scanning;
 

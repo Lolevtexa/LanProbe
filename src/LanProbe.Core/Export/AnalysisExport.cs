@@ -1,3 +1,6 @@
+/// <summary>
+/// Экспорт итогов анализа в JSON/CSV/Markdown. «Сигналы безопасности» удалены.
+/// </summary>
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,6 +11,9 @@ using LanProbe.Core.Analysis;
 
 namespace LanProbe.Core.Export
 {
+    /// <summary>
+    /// Экспорт итогов анализа: JSON, CSV и Markdown. Раздел «Сигналы безопасности» удалён.
+    /// </summary>
     public static class AnalysisExport
     {
         public static void SaveJson(string path, IEnumerable<DeviceAnalysisResult> results)
@@ -19,89 +25,48 @@ namespace LanProbe.Core.Export
         public static void SaveCsv(string path, IEnumerable<DeviceAnalysisResult> results)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("ip,mac,vendor,ttl,rtt_ms,alive_source,open_ports,kind,os_guess,confidence,risks,anomalies");
+            sb.AppendLine("ip,kind,os,confidence,vendor,open_ports,reasons");
             foreach (var r in results)
             {
-                var open = string.Join(";", r.OpenPorts);
-                var risks = string.Join("|", r.Risks);
-                var an = string.Join("|", r.Anomalies);
-                sb.AppendLine($"{r.Ip},{r.Mac},{Escape(r.Vendor)},{r.Ttl},{r.RttMs},{r.AliveSource},\"{open}\",{r.Classification.Kind},{r.Classification.OsGuess},{r.Classification.Confidence},{risks},{an}");
+                var ports = string.Join(";", (r.OpenPorts ?? Array.Empty<int>()).OrderBy(p => p));
+                var reasons = string.Join(";", r.Classification.Reasons ?? new List<string>());
+                sb.AppendLine($"{r.Ip},{Escape(r.Classification.Kind)},{Escape(r.Classification.OsGuess)},{r.Classification.Confidence:F2},{Escape(r.Vendor)},{ports},{Escape(reasons)}");
             }
             File.WriteAllText(path, sb.ToString());
         }
 
         public static void SaveMarkdown(string path, IEnumerable<DeviceAnalysisResult> results)
         {
-            var list = results.ToList();
+            var list = results.OrderBy(r => r.Ip, StringComparer.OrdinalIgnoreCase).ToList();
             var sb = new StringBuilder();
-
-            sb.AppendLine("# TL;DR\n");
-            foreach (var line in BuildTldrLines(list).Take(10)) sb.AppendLine($"- {line}");
+            sb.AppendLine("# LanProbe — Итоги анализа");
+            sb.AppendLine();
+            sb.AppendLine($"Всего устройств: **{list.Count}**");
             sb.AppendLine();
 
-            sb.AppendLine("## Сервисы по хостам\n");
             foreach (var r in list)
             {
-                string vendorOut = r.Vendor ?? "";
-                var brand = r.Classification.Reasons
-                    .FirstOrDefault(x => x.StartsWith("router.brand:", StringComparison.OrdinalIgnoreCase));
-                if (string.IsNullOrWhiteSpace(vendorOut) && brand != null)
-                    vendorOut = brand.Substring("router.brand:".Length).Trim();
-
-                sb.AppendLine($"**{r.Ip}** — {r.Classification.Kind} ({r.Classification.OsGuess}), vendor: {vendorOut}\n");
-
-                if (r.Services.Count == 0) { sb.AppendLine(); continue; }
-                sb.AppendLine("| Порт | Сервис | Статус | Сервер | Заголовок/Title | Редирект | TLS |");
-                sb.AppendLine("|---:|---|---|---|---|---|---|");
-                foreach (var s in r.Services)
+                // Вендор: OUI vendor либо fallback на router.brand:* из reasons
+                var vendor = r.Vendor;
+                if (string.IsNullOrWhiteSpace(vendor))
                 {
-                    var tls = s.Tls is null ? "" : $"{s.Tls.Version} {(s.Tls.SelfSigned == true ? "self-signed" : "")} {s.Tls.Cn}";
-                    sb.AppendLine($"| {s.Port} | {s.Service} | {s.Status} | {Escape(s.Server)} | {Escape(s.Title)} | {Escape(s.RedirectTo)} | {Escape(tls)} |");
+                    var brand = r.Classification.Reasons?.FirstOrDefault(x => x.StartsWith("router.brand:", StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrWhiteSpace(brand)) vendor = brand.Split(':', 2).Last();
                 }
+
+                var ports = (r.OpenPorts ?? Array.Empty<int>()).OrderBy(p => p).ToArray();
+                sb.AppendLine($"## {r.Ip} — {r.Classification.Kind} ({r.Classification.OsGuess}){(string.IsNullOrWhiteSpace(vendor) ? "" : $" — {vendor}")}");
                 sb.AppendLine();
-            }
-
-            sb.AppendLine("## Сигналы безопасности\n");
-            sb.AppendLine("| IP | Риски | Аномалии |");
-            sb.AppendLine("|---|---|---|");
-            foreach (var r in list)
-                sb.AppendLine($"| {r.Ip} | {string.Join(", ", r.Risks)} | {string.Join(", ", r.Anomalies)} |");
-            sb.AppendLine();
-
-            sb.AppendLine("## Дубликаты контента\n");
-            sb.AppendLine("| IP | Порт | Дубликат порта | Хэш |");
-            sb.AppendLine("|---|---:|---:|---|");
-            foreach (var r in list)
-                foreach (var s in r.Services.Where(x => x.DuplicateOfPort is not null && !string.IsNullOrWhiteSpace(x.ContentHash)))
-                    sb.AppendLine($"| {r.Ip} | {s.Port} | {s.DuplicateOfPort} | {s.ContentHash} |");
-            sb.AppendLine();
-
-            sb.AppendLine("## Карточки устройств\n");
-            foreach (var r in list)
-            {
-                sb.AppendLine($"### {r.Ip} — {r.Classification.Kind} ({r.Classification.OsGuess})\n");
-                sb.AppendLine(r.Summary);
+                if (ports.Length > 0)
+                    sb.AppendLine($"Открытые порты: `{string.Join(", ", ports)}`");
+                if (r.Classification.Reasons?.Count > 0)
+                    sb.AppendLine($"Причины: {string.Join(", ", r.Classification.Reasons)}");
+                if (!string.IsNullOrWhiteSpace(r.Summary))
+                    sb.AppendLine($"> {r.Summary}");
                 sb.AppendLine();
             }
 
             File.WriteAllText(path, sb.ToString());
-        }
-
-        private static IEnumerable<string> BuildTldrLines(List<DeviceAnalysisResult> list)
-        {
-            yield return $"Всего узлов: {list.Count}. Рискованных: {list.Count(r => r.Risks.Count > 0)}.";
-            var httpExposed = list.Where(r => r.Risks.Contains("http_exposed")).Select(r => r.Ip);
-            if (httpExposed.Any()) yield return $"HTTP без HTTPS: {string.Join(", ", httpExposed.Take(5))}{(httpExposed.Count() > 5 ? "…" : "")}";
-            var rdp = list.Where(r => r.Risks.Contains("rdp_exposed")).Select(r => r.Ip);
-            if (rdp.Any()) yield return $"Открыт RDP: {string.Join(", ", rdp.Take(5))}{(rdp.Count() > 5 ? "…" : "")}";
-            var smb = list.Where(r => r.Risks.Contains("smb_exposed")).Select(r => r.Ip);
-            if (smb.Any()) yield return $"Открыт SMB: {string.Join(", ", smb.Take(5))}{(smb.Count() > 5 ? "…" : "")}";
-            var tlsSelf = list.Where(r => r.Risks.Contains("tls_self_signed")).Select(r => r.Ip);
-            if (tlsSelf.Any()) yield return $"Self-signed TLS: {string.Join(", ", tlsSelf.Take(5))}{(tlsSelf.Count() > 5 ? "…" : "")}";
-            var soon = list.Where(r => r.Risks.Contains("tls_expiring_soon")).Select(r => r.Ip);
-            if (soon.Any()) yield return $"Срок действия TLS скоро истечёт: {string.Join(", ", soon.Take(5))}{(soon.Count() > 5 ? "…" : "")}";
-            var highRtt = list.Where(r => r.Anomalies.Contains("high_rtt")).Select(r => r.Ip);
-            if (highRtt.Any()) yield return $"Высокий RTT: {string.Join(", ", highRtt.Take(5))}{(highRtt.Count() > 5 ? "…" : "")}";
         }
 
         private static string Escape(string? s)

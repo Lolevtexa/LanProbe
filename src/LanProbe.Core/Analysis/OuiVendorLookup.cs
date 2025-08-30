@@ -1,8 +1,12 @@
+/// <summary>
+/// Комбинированный загрузчик OUI-таблиц (IEEE CSV/TXT, Wireshark manuf, Nmap prefixes) и быстрый резолвер.
+/// </summary>
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
+using LanProbe.Core.Analysis;
 using LanProbe.Core.Util;
 
 namespace LanProbe.Core.Net
@@ -265,6 +269,33 @@ namespace LanProbe.Core.Net
             }
             list.Add(cur);
             return list.ToArray();
+        }
+    }
+
+
+    /// <summary>
+    /// Адаптер под интерфейс IOuiVendorLookup для использования в анализаторе.
+    /// </summary>
+    public sealed class OuiVendorLookupAdapter : IOuiVendorLookup
+    {
+        public string? Find(string? mac)
+        {
+            if (string.IsNullOrWhiteSpace(mac)) return null;
+            return OuiVendorLookup.TryResolve(mac!, out var vendor, out _, out _, out _) ? vendor : null;
+        }
+
+        public bool IsLocallyAdministered(string? mac)
+        {
+            if (string.IsNullOrWhiteSpace(mac)) return false;
+            // LAA бит: второй младший бит первого октета установлен
+            try
+            {
+                var s = mac!.Replace("-", "").Replace(":", "").Replace(".", "");
+                if (s.Length < 2) return false;
+                var first = Convert.ToByte(s.Substring(0, 2), 16);
+                return (first & 0x02) != 0;
+            }
+            catch { return false; }
         }
     }
 }

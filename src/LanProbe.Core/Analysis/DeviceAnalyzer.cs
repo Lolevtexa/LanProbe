@@ -1,3 +1,7 @@
+/// <summary>
+/// Анализ устройств по фактам (порты/баннеры/TTL/RTT) с формированием классификации и объяснений (reasons).
+/// Поле risks удалено в этом релизе.
+/// </summary>
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -64,7 +68,6 @@ namespace LanProbe.Core.Analysis
         [property: JsonPropertyName("alive_source")] string AliveSource,
         [property: JsonPropertyName("open_ports")] int[] OpenPorts,
         [property: JsonPropertyName("services")] List<ServiceEntry> Services,
-        [property: JsonPropertyName("risks")] List<string> Risks,
         [property: JsonPropertyName("anomalies")] List<string> Anomalies,
         [property: JsonPropertyName("classification")] DeviceClassification Classification,
         [property: JsonPropertyName("summary")] string Summary
@@ -155,8 +158,7 @@ namespace LanProbe.Core.Analysis
             var services = BuildServices(f);
 
             // ===== Risks & anomalies =====
-            var risks = EvaluateRisks(f, services, options);
-            var anomalies = EvaluateAnomalies(f, options);
+            var risks = new List<string>(); var anomalies = EvaluateAnomalies(f, options);
 
             // ===== Classification (с объяснениями) =====
             var (kind, osGuess, conf, scores, reasons, alt) = Classify(f, services, vendor);
@@ -173,7 +175,6 @@ namespace LanProbe.Core.Analysis
                 AliveSource: f.AliveSource ?? (f.IcmpOk ? "icmp" : (f.ArpOk ? "arp" : "none")),
                 OpenPorts: f.OpenPorts ?? Array.Empty<int>(),
                 Services: services,
-                Risks: risks,
                 Anomalies: anomalies,
                 Classification: new DeviceClassification(kind, osGuess, conf, scores, reasons, alt),
                 Summary: summary
@@ -254,59 +255,6 @@ namespace LanProbe.Core.Analysis
                     list.Add(new ServiceEntry(p, "tcp", null, null, null, null, null, null, null, null, null, null));
 
             return list.OrderBy(s => s.Port).ToList();
-        }
-
-        private static List<string> EvaluateRisks(DeviceFact f, List<ServiceEntry> svc, AnalysisOptions options)
-        {
-            var risks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var open = new HashSet<int>(f.OpenPorts ?? Array.Empty<int>());
-
-            if (open.Contains(445)) risks.Add("smb_exposed");
-            if (open.Contains(3389)) risks.Add("rdp_exposed");
-            if (open.Contains(5900)) risks.Add("vnc_exposed");
-            if (open.Contains(554)) risks.Add("rtsp_exposed");
-            if (open.Contains(23)) risks.Add("telnet_exposed");
-
-            // HTTP без редиректа на HTTPS
-            bool httpOpen = svc.Any(s => s.Service == "http");
-            bool httpsOpen = svc.Any(s => s.Service == "https");
-            bool httpRedirects = svc.Where(s => s.Service == "http")
-                                    .Any(s => !string.IsNullOrWhiteSpace(s.RedirectTo) &&
-                                              s.RedirectTo!.StartsWith("https", StringComparison.OrdinalIgnoreCase));
-            if (httpOpen && (!httpsOpen || !httpRedirects)) risks.Add("http_exposed");
-
-            // TLS
-            foreach (var s in svc)
-            {
-                if (s.Tls is null) continue;
-                if (s.Tls.SelfSigned == true) risks.Add("tls_self_signed");
-
-                if (s.Tls.NotAfter is DateTimeOffset na)
-                {
-                    var days = (na - options.NowUtc).TotalDays;
-                    if (days < 0) risks.Add("tls_expired");
-                    else if (days < 90) risks.Add("tls_expiring_soon");
-                }
-
-                var ver = (s.Tls.Version ?? "").ToLowerInvariant();
-                if (ver.Contains("1.0") || ver.Contains("1.1")) risks.Add("tls_legacy_version");
-
-                var cs = s.Tls.CipherSuite ?? "";
-                if (cs.Contains("RC4", StringComparison.OrdinalIgnoreCase) ||
-                    cs.Contains("3DES", StringComparison.OrdinalIgnoreCase) ||
-                    cs.Contains("_SHA_", StringComparison.OrdinalIgnoreCase))
-                    risks.Add("tls_weak_cipher");
-            }
-
-            // Устаревшие web-стеки (очень грубо)
-            foreach (var s in svc.Where(x => x.Service is "http" or "https"))
-            {
-                var server = s.Server ?? "";
-                if (server.Contains("Apache/2.2") || server.Contains("nginx/0.") || server.Contains("IIS/6") || server.Contains("IIS/7.0"))
-                    risks.Add("web_stack_outdated");
-            }
-
-            return risks.OrderBy(x => x).ToList();
         }
 
         private static List<string> EvaluateAnomalies(DeviceFact f, AnalysisOptions options)

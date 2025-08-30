@@ -5,196 +5,216 @@ using LanProbe.Core.Models;
 using LanProbe.Core.Scanning;
 using LanProbe.Core.Analysis;
 using LanProbe.Core.Util;
+using LanProbe.Core.Net;
 using System.Net;
 using System.Text;
-using LanProbe.Core.Net;
+using System.Linq;
 
-class Program
+internal static class Program
 {
-    static async Task Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
-        if (args.Length != 1) { Console.WriteLine("usage: LanProbe.Example <CIDR>"); return; }
-        string cidr = args[0];
-
+        // === Глобальные параметры: кодировки и UTF-8 консоль ===
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        Directory.CreateDirectory("data/exports");
-        Directory.CreateDirectory("data/logs");
+        Console.OutputEncoding = Encoding.UTF8;
 
-        DebugFileLog.Init();
-        // ====== Выбор интерфейса в подсети ======
-        var localIf = Dns.GetHostEntry(Dns.GetHostName()).AddressList
-            .First(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && InCidr(a.ToString(), cidr))
-            .ToString();
-        Console.WriteLine($"[START] iface={localIf} cidr={cidr}");
+        if (args.Length < 1)
+        {
+            Console.WriteLine("usage: LanProbe.Example <CIDR> [--mode debug|log|quiet] [--out out] [--logs logs] [--raw data/raw] [--oui data/oui]");
+            return 2;
+        }
 
-        // ====== ARP до очистки, очистка, ARP0 снимок ======
-        File.WriteAllText("data/logs/arp_before_clear.txt", ArpReader.RawOutput(localIf));
-        if (ArpReader.ClearAllAndVerify(localIf))
-            Console.WriteLine("[ARP] cache cleared");
-        else
-            Console.WriteLine("[ARP] cache not cleared (continue)");
+        // === Конфигурация ===
+        var cfg = ParseArgs(args);
 
-        var arp0raw = ArpReader.RawOutput(localIf);
-        File.WriteAllText("data/logs/arp0.txt", arp0raw);
-        var arp0 = ArpReader.Snapshot(localIf);
-        Console.WriteLine($"[ARP0] entries={arp0.Count}");
+        // Инициализация каталога логов (внутри будет logs/step3/<timestamp>/...)
+        DebugFileLog.Init(cfg.LogsDir);
 
-        // ====== Подготовка IP-адресов ======
-        var ips = CidrList(cidr).ToList();
+        // === Стадии ===
+        Console.WriteLine($"[START] iface=auto cidr={cfg.Cidr} mode={cfg.Mode}");
+        var facts = await DiscoverAliveHosts(cfg);
+        Console.WriteLine($"[ALIVE] hosts={facts.Count()}");
 
-        // ====== Пинги ======
-        var results = new Dictionary<string, (bool ok, long bestRttMs, int ttl, int successCount)>();
-        var throttler = new SemaphoreSlim(64);
-        var tasks = new List<Task>();
-        var logStep1 = new StringBuilder();
+        var enriched = await ScanPortsAndGrabBanners(cfg, facts);
+        Console.WriteLine($"[ENRICH] enriched={enriched.Count()}");
 
+        var results = AnalyzeDevices(cfg, enriched);
+        Console.WriteLine($"[ANALYZE] analyzed={results.Count}");
+
+        // Экспорты (уважают RunMode, но точки выхода централизованы здесь)
+        Directory.CreateDirectory(cfg.OutDir);
+        AnalysisExport.SaveJson(Path.Combine(cfg.OutDir, "analysis.json"), results);
+        if (cfg.Mode != RunMode.Quiet)
+        {
+            AnalysisExport.SaveCsv(Path.Combine(cfg.OutDir, "analysis.csv"), results);
+            AnalysisExport.SaveMarkdown(Path.Combine(cfg.OutDir, "analysis.md"), results);
+        }
+
+        Console.WriteLine("[DONE]");
+        return 0;
+    }
+
+    // === Discover ===
+    private static async Task<List<DeviceFact>> DiscoverAliveHosts(RunConfig cfg)
+    {
+        var ifaceIp = GetLocalInterfaceIpInCidr(cfg.Cidr)
+            ?? throw new InvalidOperationException($"Не найден локальный интерфейс в сети {cfg.Cidr}");
+        var ips = CidrList(cfg.Cidr).ToList();
+
+        DebugFileLog.WriteLine("", "[ARP] cache not cleared (continue)");
+        var arpBefore = ArpReader.Snapshot(ifaceIp);
+        DebugFileLog.WriteLine("", $"[ARP0][DEBUG] entries={arpBefore.Count}");
+
+        var pingTasks = new List<Task<(string ip, (bool ok, long bestRttMs, int ttl, int successCount) pr)>>();
         foreach (var ip in ips)
         {
-            await throttler.WaitAsync();
-            tasks.Add(Task.Run(async () =>
+            // Любые строчки до классификации сразу попадут в logs/<ip>/unreachable/<TS>.log
+            DebugFileLog.WriteLine(ip, "[DISCOVER] probing...");
+            pingTasks.Add(Task.Run(async () =>
             {
-                try
-                {
-                    var res = await Pinger.TryPingMultiAsync(ip, localIf, timeoutMsPerTry: 1200, attempts: 3, delayBetweenMs: 150);
-                    lock (results) results[ip] = res;
-                    lock (logStep1) logStep1.AppendLine($"{DateTime.UtcNow:o},{localIf},{ip},{res.ok},{res.bestRttMs},{res.ttl},{res.successCount}");
-                }
-                finally { throttler.Release(); }
+                var pr = await Pinger.TryPingMultiAsync(ip, ifaceIp, cfg.PingTimeoutMs, cfg.PingAttempts);
+                DebugFileLog.WriteLine(ip, $"[ICMP][DEBUG] attempts={cfg.PingAttempts} timeout={cfg.PingTimeoutMs} ok={pr.ok} rtt={pr.bestRttMs} ttl={pr.ttl}");
+                return (ip, pr);
             }));
         }
-        await Task.WhenAll(tasks);
-        File.WriteAllText("data/logs/step1_ping.csv", "ts,iface,ip,ok,best_rtt_ms,ttl,success_count\n" + logStep1.ToString());
+        await Task.WhenAll(pingTasks);
 
-        // ====== ARP1 снимок ======
-        await Task.Delay(400);
-        var arp1raw = ArpReader.RawOutput(localIf);
-        File.WriteAllText("data/logs/arp1.txt", arp1raw);
-        var arp1 = ArpReader.Snapshot(localIf);
-        Console.WriteLine($"[ARP1] entries={arp1.Count}");
+        var arpAfter = ArpReader.Snapshot(ifaceIp);
+        DebugFileLog.WriteLine("", $"[ARP1][DEBUG] entries={arpAfter.Count}");
 
-        // ====== Построение DeviceFact ======
-        var vendorDb = new MacVendorLookup("data/vendors.csv");
+        var arpMap = arpAfter.ToDictionary(a => a.Ip, a => a.Mac);
+        var macLookup = new MacVendorLookup(Path.Combine(cfg.OuiDir, "ouicache.csv"));
+
         var facts = new List<DeviceFact>();
-        foreach (var ip in ips)
-        {
-            results.TryGetValue(ip, out var pr);
-            var mac = arp1.FirstOrDefault(e => e.Ip == ip)?.Mac;
-            bool arpOk = mac != null;
-            if (!pr.ok && !arpOk) continue;
 
-            string alive = pr.ok ? "icmp" : (arpOk ? "arp" : "none");
+        foreach (var t in pingTasks)
+        {
+            var (ip, pr) = t.Result;
+            var arpOk = arpMap.TryGetValue(ip, out var mac);
+
+            if (!pr.ok && !arpOk)
+            {
+                // Так и остаётся в unreachable: не добавляем в facts => не пойдёт в обогащение/анализ
+                DebugFileLog.WriteLine(ip, "[DISCOVER] still unreachable (no ICMP & no ARP)");
+                continue;
+            }
+
+            // С этого момента IP — живой: переносим лог в alive/ и дальше пишем туда
+            DebugFileLog.MarkAlive(ip);
+            DebugFileLog.WriteLine(ip, $"[DISCOVER] alive via {(pr.ok ? "ICMP" : "ARP")}");
+
+            var vendor = macLookup.Find(mac);
             facts.Add(new DeviceFact(
                 Timestamp: DateTime.UtcNow,
-                InterfaceIp: localIf,
+                InterfaceIp: ifaceIp,
                 Ip: ip,
                 IcmpOk: pr.ok,
                 RttMs: pr.bestRttMs,
                 Ttl: pr.ttl,
                 ArpOk: arpOk,
-                Mac: mac,
-                Vendor: vendorDb.Find(mac),
-                AliveSource: alive,
-                SilentHost: (!pr.ok && arpOk),
+                Mac: mac ?? "",
+                Vendor: vendor ?? "",
+                AliveSource: pr.ok ? "icmp" : "arp",
+                SilentHost: false,
                 ProxyArp: false,
-                RouteMismatch: (pr.ok && !arpOk)
+                RouteMismatch: false
             ));
         }
 
-        CsvExporter.Save("data/exports/devices.csv", facts);
-        JsonExporter.Save("data/exports/devices.json", facts);
-        Console.WriteLine($"[STEP1] alive={facts.Count}");
-
-        // ====== ШАГ 2: TCP-порты и баннеры ======
-        int[] portsToScan =
+        if (cfg.Mode != RunMode.Quiet)
         {
-            21,22,23,25,53,80,81,82,110,123,135,139,143,161,389,443,445,465,515,554,631,873,
-            990,993,995,1433,1723,1883,2049,2181,2376,2377,3000,3128,3306,3389,3478,37777,
-            5000,5001,5050,5060,5353,5357,5432,5672,5683,5900,5985,5986,6379,6443,7001,8000,
-            8008,8080,8081,8123,8181,8291,8443,8765,8888,9000,9042,9090,9092,9100,9200,9300,
-            9443,10000,10443,18080,27017,32400,32443
-        };
-
-        var portScanner = new PortScanner(portsToScan, connectTimeoutMs: 1100, perHostConcurrency: 64);
-        var bannerGrabber = new BannerGrabber(timeoutMs: 2000, maxBytes: 64_000, saveRaw: true, rawDir: "data/raw");
-
-        IPAddress? bindOnInterface = IPAddress.Parse(localIf);
-        var ct = new CancellationTokenSource(TimeSpan.FromMinutes(5)).Token;
-
-        string? ServiceName(int port) => port switch
-        {
-            22 => "ssh",
-            80 => "http",
-            443 => "https",
-            445 => "smb",
-            3389 => "rdp",
-            8291 => "mikrotik",
-            9100 => "jetdirect",
-            631 => "ipp",
-            554 => "rtsp",
-            8080 => "http-alt",
-            6379 => "redis",
-            3306 => "mysql",
-            5432 => "postgres",
-            _ => null
-        };
-
-        var logStep2 = new StringBuilder();
-        logStep2.AppendLine("ts,ip,port,open,connect_ms,service,probe,summary");
-
-        var step2Tasks = facts.Select(async d =>
-        {
-            var ip = IPAddress.Parse(d.Ip);
-            var probes = await portScanner.ScanAsync(ip, bindOnInterface, ServiceName, ct);
-            var banners = await bannerGrabber.GrabAsync(ip, probes, bindOnInterface, ct);
-
-            foreach (var pp in probes.Where(x => x.Open))
-            {
-                var b = banners.FirstOrDefault(x => x.Port == pp.Port);
-                var probeName = b?.Probe ?? "fact/open";
-                var summary = b?.Summary?.Replace(',', ' ') ?? "open";
-                lock (logStep2)
-                    logStep2.AppendLine($"{DateTime.UtcNow:o},{d.Ip},{pp.Port},true,{pp.ConnectMs},{pp.ServiceGuess ?? ""},{probeName},{summary}");
-            }
-
-            return d with
-            {
-                OpenPorts = probes.Where(p => p.Open).Select(p => p.Port).OrderBy(p => p).ToArray(),
-                Banners = banners.ToArray()
-            };
-        });
-
-        var enriched = await Task.WhenAll(step2Tasks);
-
-        await File.WriteAllTextAsync("data/exports/devices.step2.json",
-            System.Text.Json.JsonSerializer.Serialize(enriched, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), ct);
-
-        File.WriteAllText("data/logs/step2_ports.csv", logStep2.ToString());
-        Console.WriteLine($"[STEP2] enriched={enriched.Length} (ports+banners)");
-
-        // ====== ШАГ 3: Автоанализ ======
-        {
-            Directory.CreateDirectory("out");
-
-            // Подгружаем объединённые таблицы OUI (IEEE/Wireshark/Nmap)
-            // Ожидаемые файлы: data/oui/oui.csv (или oui.txt), data/oui/manuf, data/oui/nmap-mac-prefixes
-            OuiVendorLookup.LoadAll("data/oui");
-
-            IOuiVendorLookup? oui = null; // legacy-слой не используем
-
-            var analysisResults = DeviceAnalyzer.AnalyzeAll(enriched, oui, new AnalysisOptions { HighRttMs = 30 });
-
-            AnalysisExport.SaveJson("out/analysis.json", analysisResults);
-            AnalysisExport.SaveCsv("out/analysis.csv", analysisResults);
-            AnalysisExport.SaveMarkdown("out/analysis.md", analysisResults);
-
-            Console.WriteLine($"[STEP3] analyzed={analysisResults.Count}");
+            Directory.CreateDirectory(Path.Combine(cfg.OutDir, "facts"));
+            JsonExporter.Save(Path.Combine(cfg.OutDir, "facts", "facts.json"), facts);
+            CsvExporter.Save(Path.Combine(cfg.OutDir, "facts", "facts.csv"), facts);
         }
 
-        Console.WriteLine("[DONE]");
+        return facts;
     }
 
-    // ==== helpers ====
-    static IEnumerable<string> CidrList(string cidr)
+    // === Enrich ===
+    private static async Task<List<DeviceFact>> ScanPortsAndGrabBanners(RunConfig cfg, IEnumerable<DeviceFact> facts)
+    {
+        var alive = facts.Where(f => f.IcmpOk || f.ArpOk).ToList();
+        var ports = new[] { 22, 23, 53, 80, 81, 82, 88, 139, 143, 389, 443, 445, 554, 555, 631, 8008, 8080, 8443, 9000, 9090, 49152 };
+        var scanner = new PortScanner(ports, cfg.ConnectTimeoutMs, cfg.PortScanConcurrency);
+        var grabber = new BannerGrabber(cfg.BannerTimeoutMs);
+
+        var enriched = new List<DeviceFact>();
+        foreach (var f in alive)
+        {
+            var probes = await scanner.ScanAsync(
+                System.Net.IPAddress.Parse(f.Ip),
+                string.IsNullOrWhiteSpace(f.InterfaceIp) ? null : System.Net.IPAddress.Parse(f.InterfaceIp),
+                null,
+                CancellationToken.None
+            );
+            var open = probes.Where(p => p.Open).Select(p => p.Port).ToArray();
+            if (open.Length > 0)
+                DebugFileLog.WriteLine(f.Ip, $"[SCAN][DEBUG] open={string.Join(',', open)}");
+
+            var bannersList = await grabber.GrabAsync(
+                System.Net.IPAddress.Parse(f.Ip),
+                probes.Where(p => p.Open),
+                string.IsNullOrWhiteSpace(f.InterfaceIp) ? null : System.Net.IPAddress.Parse(f.InterfaceIp),
+                CancellationToken.None
+            );
+            DebugFileLog.WriteLine(f.Ip, $"[BANNER][DEBUG] grabbed={bannersList.Count}");
+
+            var banners = bannersList.ToArray();
+            enriched.Add(f with { OpenPorts = open, Banners = banners });
+        }
+
+        return enriched;
+    }
+
+    // === Analyze ===
+    private static List<DeviceAnalysisResult> AnalyzeDevices(RunConfig cfg, IEnumerable<DeviceFact> enriched)
+    {
+        // Подготовим OUI комбинированный резолвер
+        OuiVendorLookup.LoadAll(cfg.OuiDir);
+
+        var opts = new AnalysisOptions
+        {
+            HighRttMs = cfg.HighRttMs,
+            NowUtc = DateTime.UtcNow,
+            IncludeRawLinks = (cfg.Mode != RunMode.Quiet)
+        };
+
+        var results = DeviceAnalyzer.AnalyzeAll(enriched, new OuiVendorLookupAdapter(), opts);
+
+        return results;
+    }
+
+    // === Arg parsing & helpers ===
+    private static RunConfig ParseArgs(string[] args)
+    {
+        var cfg = RunConfig.Default(args[0]);
+        string? mode = null;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--mode" && i + 1 < args.Length) mode = args[++i];
+            else if (args[i] == "--out" && i + 1 < args.Length) cfg = cfg with { OutDir = args[++i] };
+            else if (args[i] == "--logs" && i + 1 < args.Length) cfg = cfg with { LogsDir = args[++i] };
+            else if (args[i] == "--raw" && i + 1 < args.Length) cfg = cfg with { RawDir = args[++i] };
+            else if (args[i] == "--oui" && i + 1 < args.Length) cfg = cfg with { OuiDir = args[++i] };
+        }
+        if (!string.IsNullOrWhiteSpace(mode))
+        {
+            cfg = cfg with
+            {
+                Mode = mode!.ToLowerInvariant() switch
+                {
+                    "debug" => RunMode.Debug,
+                    "quiet" => RunMode.Quiet,
+                    _ => RunMode.Log
+                }
+            };
+        }
+        return cfg;
+    }
+
+    private static IEnumerable<string> CidrList(string cidr)
     {
         var (net, prefix) = (IPAddress.Parse(cidr.Split('/')[0]), int.Parse(cidr.Split('/')[1]));
         uint ip = BitConverter.ToUInt32(net.GetAddressBytes().Reverse().ToArray(), 0);
@@ -205,7 +225,17 @@ class Program
             yield return new IPAddress(BitConverter.GetBytes(netw + i).Reverse().ToArray()).ToString();
     }
 
-    static bool InCidr(string ip, string cidr)
+    private static string? GetLocalInterfaceIpInCidr(string cidr)
+    {
+        // Простая заглушка: вернуть первый локальный IPv4, совпадающий по сети.
+        foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList.Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork))
+        {
+            if (InCidr(ip.ToString(), cidr)) return ip.ToString();
+        }
+        return null;
+    }
+
+    private static bool InCidr(string ip, string cidr)
     {
         var parts = cidr.Split('/');
         var baseIp = IPAddress.Parse(parts[0]).GetAddressBytes();

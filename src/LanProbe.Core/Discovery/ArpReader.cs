@@ -1,3 +1,4 @@
+using LanProbe.Core.Util;
 // src/LanProbe.Core/Discovery/ArpReader.cs
 using System.Diagnostics;
 using System.Text;
@@ -88,6 +89,7 @@ public static class ArpReader {
         var after = Snapshot(interfaceIp);
         // в кэше могут остаться статические (мультикаст), но динамических по нашим хостам быть не должно
         // упростим: если вообще есть строки с обычными IP — считаем, что не очистилось
+        DebugFileLog.WriteLine("", $"[ARP][DEBUG] cache_cleared={(after.Count==0)} after={after.Count}");
         return after.Count == 0;
     }
 }

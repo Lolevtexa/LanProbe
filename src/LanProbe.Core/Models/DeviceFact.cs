@@ -1,3 +1,6 @@
+/// <summary>
+/// Базовый факт об устройстве и результаты обогащения (порты/баннеры).
+/// </summary>
 using System.Text.Json.Serialization;
 
 namespace LanProbe.Core.Models;
