@@ -4,6 +4,7 @@ using LanProbe.Core.Export;
 using LanProbe.Core.Models;
 using System.Net;
 using System.Threading;
+using System.Text;
 
 class Program
 {
@@ -12,23 +13,32 @@ class Program
         if (args.Length != 1) { Console.WriteLine("usage: LanProbe.Example <CIDR>"); return; }
         string cidr = args[0];
 
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
         // выбрать локальный интерфейс в подсети
         var localIf = Dns.GetHostEntry(Dns.GetHostName()).AddressList
             .First(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
                      && InCidr(a.ToString(), cidr)).ToString();
 
         Directory.CreateDirectory("data/exports");
+        Directory.CreateDirectory("data/logs");
+        Console.WriteLine($"[IFACE] using local interface: {localIf}");
+        Console.WriteLine($"[ARP] exe: {ArpReader.ResolveArpPath()}");
 
-        // попытка очистить ARP (не критично, если не получится)
+        // Лог до очистки (по нужному интерфейсу)
+        File.WriteAllText("data/logs/arp_before_clear.txt", ArpReader.RawOutput(localIf));
+
         // попытка очистить ARP
-        if (ArpReader.ClearAll())
-            Console.WriteLine("[OK] ARP cache cleared");
+        if (ArpReader.ClearAllAndVerify(localIf))
+            Console.WriteLine("[OK] ARP cache cleared (verified)");
         else
-            Console.WriteLine("[WARN] Failed to clear ARP cache (need admin?)");
+            Console.WriteLine("[WARN] ARP cache not cleared (entries still present or no rights)");
 
-
-        // ARP₀ (по твоей логике он для справки; используем ARP₁ как основной)
-        var arp0 = ArpReader.Snapshot();
+        // ARP₀ сразу после очистки
+        var arp0raw = ArpReader.RawOutput(localIf);
+        File.WriteAllText("data/logs/arp0.txt", arp0raw);
+        var arp0 = ArpReader.Snapshot(localIf);
+        Console.WriteLine($"[ARP0] entries on {localIf}: {arp0.Count}");
 
         // подготовка набора IP
         var ips = CidrList(cidr).Where(ip => ip != localIf).ToList();
@@ -57,7 +67,11 @@ class Program
         await Task.WhenAll(tasks);
 
         // ARP₁ — главный снимок после всех запросов
-        var arp1 = ArpReader.Snapshot();
+        await Task.Delay(400);
+        var arp1raw = ArpReader.RawOutput(localIf);
+        File.WriteAllText("data/logs/arp1.txt", arp1raw);
+        var arp1 = ArpReader.Snapshot(localIf);
+        Console.WriteLine($"[ARP1] entries on {localIf}: {arp1.Count}");
 
         // вендор (можно оставить пустой vendors.csv)
         var vendorDb = new MacVendorLookup("data/vendors.csv");
@@ -67,10 +81,14 @@ class Program
         foreach (var ip in ips)
         {
             results.TryGetValue(ip, out var pr);
-            var mac = ArpReader.FindMac(arp1, ip, localIf);
+            var mac = arp1.FirstOrDefault(e => e.Ip == ip)?.Mac;
             bool arpOk = mac != null;
 
+            if (!pr.ok && !arpOk) continue;
+
             string alive = pr.ok ? "icmp" : (arpOk ? "arp" : "none");
+
+            Console.WriteLine($"[IP] {ip} icmp_ok={pr.ok} rtt={pr.rtt}ms ttl={pr.ttl} arp_ok={arpOk} mac={mac ?? "-"}");
 
             facts.Add(new DeviceFact(
                 Timestamp: DateTime.UtcNow,
@@ -84,8 +102,8 @@ class Program
                 Vendor: vendorDb.Find(mac),
                 AliveSource: alive,
                 SilentHost: (!pr.ok && arpOk),
-                ProxyArp: false,         // на этом этапе не вычисляем (упростили)
-                RouteMismatch: (pr.ok && !arpOk) // по твоей модели это не критично, но поле заполним
+                ProxyArp: false,
+                RouteMismatch: (pr.ok && !arpOk)
             ));
         }
 
