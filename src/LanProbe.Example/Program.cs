@@ -3,9 +3,11 @@ using LanProbe.Core.Enrichment;
 using LanProbe.Core.Export;
 using LanProbe.Core.Models;
 using LanProbe.Core.Scanning;
-using LanProbe.Core.Analysis;   // Шаг 3: анализ
+using LanProbe.Core.Analysis;
+using LanProbe.Core.Util;
 using System.Net;
 using System.Text;
+using LanProbe.Core.Net;
 
 class Program
 {
@@ -18,6 +20,7 @@ class Program
         Directory.CreateDirectory("data/exports");
         Directory.CreateDirectory("data/logs");
 
+        DebugFileLog.Init();
         // ====== Выбор интерфейса в подсети ======
         var localIf = Dns.GetHostEntry(Dns.GetHostName()).AddressList
             .First(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && InCidr(a.ToString(), cidr))
@@ -111,7 +114,7 @@ class Program
             9443,10000,10443,18080,27017,32400,32443
         };
 
-        var portScanner   = new PortScanner(portsToScan, connectTimeoutMs: 1100, perHostConcurrency: 64);
+        var portScanner = new PortScanner(portsToScan, connectTimeoutMs: 1100, perHostConcurrency: 64);
         var bannerGrabber = new BannerGrabber(timeoutMs: 2000, maxBytes: 64_000, saveRaw: true, rawDir: "data/raw");
 
         IPAddress? bindOnInterface = IPAddress.Parse(localIf);
@@ -119,9 +122,19 @@ class Program
 
         string? ServiceName(int port) => port switch
         {
-            22 => "ssh", 80 => "http", 443 => "https", 445 => "smb", 3389 => "rdp",
-            8291 => "mikrotik", 9100 => "jetdirect", 631 => "ipp", 554 => "rtsp",
-            8080 => "http-alt", 6379 => "redis", 3306 => "mysql", 5432 => "postgres",
+            22 => "ssh",
+            80 => "http",
+            443 => "https",
+            445 => "smb",
+            3389 => "rdp",
+            8291 => "mikrotik",
+            9100 => "jetdirect",
+            631 => "ipp",
+            554 => "rtsp",
+            8080 => "http-alt",
+            6379 => "redis",
+            3306 => "mysql",
+            5432 => "postgres",
             _ => null
         };
 
@@ -146,7 +159,7 @@ class Program
             return d with
             {
                 OpenPorts = probes.Where(p => p.Open).Select(p => p.Port).OrderBy(p => p).ToArray(),
-                Banners   = banners.ToArray()
+                Banners = banners.ToArray()
             };
         });
 
@@ -161,8 +174,12 @@ class Program
         // ====== ШАГ 3: Автоанализ ======
         {
             Directory.CreateDirectory("out");
-            var vendorsDir = "data/vendors";
-            IOuiVendorLookup? oui = Directory.Exists(vendorsDir) ? new OuiVendorLookup(vendorsDir) : null;
+
+            // Подгружаем объединённые таблицы OUI (IEEE/Wireshark/Nmap)
+            // Ожидаемые файлы: data/oui/oui.csv (или oui.txt), data/oui/manuf, data/oui/nmap-mac-prefixes
+            OuiVendorLookup.LoadAll("data/oui");
+
+            IOuiVendorLookup? oui = null; // legacy-слой не используем
 
             var analysisResults = DeviceAnalyzer.AnalyzeAll(enriched, oui, new AnalysisOptions { HighRttMs = 30 });
 

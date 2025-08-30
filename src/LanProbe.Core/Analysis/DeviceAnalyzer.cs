@@ -82,22 +82,86 @@ namespace LanProbe.Core.Analysis
 
         public static DeviceAnalysisResult AnalyzeDevice(DeviceFact f, IOuiVendorLookup? oui, AnalysisOptions options)
         {
-            // Vendor (берём из facts, либо из локальной OUI-базы; randomized → помечаем)
+            // ===== Vendor =====
+            // 1) если в факте уже есть — используем
+            // 2) иначе пробуем объединённую базу (IEEE/Wireshark/Nmap) через OuiVendorLookup.TryResolve
+            // 3) если не нашли, но MAC локально администрируемый — помечаем как (randomized)
             string? vendor = f.Vendor;
-            if (string.IsNullOrWhiteSpace(vendor)) vendor = oui?.Find(f.Mac);
-            if (string.IsNullOrWhiteSpace(vendor) && (oui?.IsLocallyAdministered(f.Mac) == true)) vendor = "(randomized)";
+            bool isRand = false;
 
-            // Services
+            if (string.IsNullOrWhiteSpace(vendor) && !string.IsNullOrWhiteSpace(f.Mac))
+            {
+                if (LanProbe.Core.Net.OuiVendorLookup.TryResolve(f.Mac, out var v, out var src, out var rand, out var prefix))
+                {
+                    vendor = v;
+                    isRand = rand;
+                    LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip,
+                        $"[OUI][DEBUG] ip={f.Ip} mac={f.Mac} prefix={prefix} vendor='{v}' src={src} randomized={rand} resolved=true");
+                }
+                else
+                {
+                    // Если внешний резолвер не нашёл, попробуем старый интерфейс (если передан)
+                    if (oui is not null)
+                    {
+                        var legacy = oui.Find(f.Mac);
+                        if (!string.IsNullOrWhiteSpace(legacy))
+                        {
+                            vendor = legacy;
+                            LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip,
+                                $"[OUI][DEBUG] ip={f.Ip} mac={f.Mac} vendor_legacy='{legacy}' resolved=true(src=legacy)");
+                        }
+                        else if (oui.IsLocallyAdministered(f.Mac))
+                        {
+                            isRand = true;
+                            vendor = "(randomized)";
+                            LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip,
+                                $"[OUI][DEBUG] ip={f.Ip} mac={f.Mac} prefix=NONE vendor='<none>' randomized=true resolved=false");
+                        }
+                        else
+                        {
+                            LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip,
+                                $"[OUI][DEBUG] ip={f.Ip} mac={f.Mac} prefix=NONE vendor='<none>' randomized=false resolved=false");
+                        }
+                    }
+                    else
+                    {
+                        // Нет legacy-слоя — определим randomized по первому октету
+                        if (!string.IsNullOrWhiteSpace(f.Mac) && f.Mac.Length >= 2)
+                        {
+                            // используем ту же эвристику, что и внутри OuiVendorLookup
+                            var macHex = f.Mac.Replace("-", "").Replace(":", "").Replace(".", "");
+                            if (macHex.Length >= 2 &&
+                                (byte.Parse(macHex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber) & 0x02) != 0)
+                            {
+                                isRand = true;
+                                vendor = "(randomized)";
+                            }
+                        }
+                        LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip,
+                            $"[OUI][DEBUG] ip={f.Ip} mac={f.Mac} prefix=NONE vendor='{vendor ?? "<none>"}' randomized={isRand} resolved=false");
+                    }
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(f.Mac))
+            {
+                // Вендор уже дан из facts — но определим флаг randomized для анализа
+                var macHex = f.Mac.Replace("-", "").Replace(":", "").Replace(".", "");
+                if (macHex.Length >= 2 &&
+                    (byte.Parse(macHex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber) & 0x02) != 0)
+                    isRand = true;
+            }
+
+            // ===== Services =====
             var services = BuildServices(f);
 
-            // Risks & anomalies
+            // ===== Risks & anomalies =====
             var risks = EvaluateRisks(f, services, options);
             var anomalies = EvaluateAnomalies(f, options);
 
-            // Classification (c объяснениями)
+            // ===== Classification (с объяснениями) =====
             var (kind, osGuess, conf, scores, reasons, alt) = Classify(f, services, vendor);
 
-            // Summary
+            // ===== Summary =====
             string summary = BuildSummary(f, vendor, kind, osGuess, services, risks, anomalies, reasons);
 
             return new DeviceAnalysisResult(
@@ -379,16 +443,17 @@ namespace LanProbe.Core.Analysis
             // ===== ДЕБАГ ВЫВОД =====
             try
             {
-                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} ttl={f.Ttl} vendor='{vendor}' " +
-                                  $"rand={randomized} phoneBrand={phoneBrand} hasWeb={hasWeb} " +
-                                  $"routerCn={routerCn} routerIssuer={routerIssuer} gwIp={gwIp} " +
-                                  $"detectedBrand='{detectedRouterBrand}' open=[{string.Join(",", open.OrderBy(x => x))}]");
+                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip,
+                    $"[STEP3][DEBUG] ip={f.Ip} ttl={f.Ttl} vendor='{vendor}' " +
+                    $"rand={randomized} phoneBrand={phoneBrand} hasWeb={hasWeb} " +
+                    $"routerCn={routerCn} routerIssuer={routerIssuer} gwIp={gwIp} " +
+                    $"detectedBrand='{detectedRouterBrand}' open=[{string.Join(",", open.OrderBy(x => x))}]");
 
                 var scoresStr = string.Join(", ", table.Select(t => $"{t.kind}={Math.Max(0, t.s):0.00}"));
-                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} scores: {scoresStr}");
-                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} reasons: {string.Join("; ", reasons)}");
-                Console.WriteLine($"[STEP3][DEBUG] ip={f.Ip} => best={best.kind} conf={conf:0.00} " +
-                                  $"alt=[{string.Join(", ", alternatives.Select(a => $"{a.kind}:{Math.Max(0, a.s):0.00}"))}]");
+                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip, $"[STEP3][DEBUG] scores: {scoresStr}");
+                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip, $"[STEP3][DEBUG] reasons: {string.Join("; ", reasons)}");
+                LanProbe.Core.Util.DebugFileLog.WriteLine(f.Ip, $"[STEP3][DEBUG] => best={best.kind} conf={conf:0.00} " +
+                    $"alt=[{string.Join(", ", alternatives.Select(a => $"{a.kind}:{Math.Max(0, a.s):0.00}"))}]");
             }
             catch { }
 

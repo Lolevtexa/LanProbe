@@ -26,6 +26,6 @@ packages/
 *.log
 LanProbe_*
 
-data/
-!data/vendors/*
+!data/oui/*
+data/*
 out/
